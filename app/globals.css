@@ -1,0 +1,21 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --background: 44 36 30;     /* Тёмный фон по умолчанию */
+    --foreground: 245 240 230;
+    --primary: 245 240 230;
+    --secondary: 212 160 23;
+    --accent: 200 167 126;      /* Мягкий бежевый (без жёлтого) */
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply bg-[#3F2A1F] hover:bg-[#2C1F17] text-white px-6 py-3 rounded-3xl font-medium transition-all active:scale-95;
+  }
+  
+  .card {
+    @apply bg-[#3F2A1F] rounded-3xl shadow-xl border border-[#5C4030];
+  }
+}

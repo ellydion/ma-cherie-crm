@@ -1,0 +1,25 @@
+{
+  "name": "Ma Cherie CRM",
+  "short_name": "Ma Cherie",
+  "description": "POS-касса, склад, клиенты и бухгалтерия для кофейни Ma Cherie Coffee & More",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#FAF5ED",
+  "theme_color": "#3F2A1F",
+  "orientation": "portrait-primary",
+  "scope": "/",
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
