@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useProfileStore } from '@/lib/store/profileStore';
 import { 
   LayoutDashboard, 
   Coffee, 
@@ -12,7 +13,6 @@ import {
   BarChart3, 
   Settings 
 } from 'lucide-react';
-import { cn } from '@/lib/utils/cn';
 
 const navItems = [
   { name: 'Дашборд', href: '/', icon: LayoutDashboard },
@@ -28,6 +28,7 @@ const navItems = [
 
 export default function Sidebar() {
   const pathname = usePathname();
+  const { profile } = useProfileStore();
 
   return (
     <div className="w-72 h-screen bg-[#3F2A1F] border-r border-[#5C4030] flex flex-col shadow-2xl">
@@ -54,12 +55,11 @@ export default function Sidebar() {
             <Link
               key={item.href}
               href={item.href}
-              className={cn(
-                "flex items-center gap-4 px-6 py-4 rounded-3xl font-medium transition-all group",
+              className={`flex items-center gap-4 px-6 py-4 rounded-3xl font-medium transition-all group ${
                 isActive 
                   ? "bg-[#C8A77E] text-[#3F2A1F] shadow-inner" 
                   : "text-white hover:bg-[#5C4030] hover:text-white"
-              )}
+              }`}
             >
               <item.icon className="w-5 h-5 transition-transform group-hover:scale-110" />
               <span>{item.name}</span>
@@ -68,15 +68,15 @@ export default function Sidebar() {
         })}
       </nav>
 
-      {/* Нижняя часть */}
+      {/* Нижняя часть — профиль сотрудника */}
       <div className="p-6 border-t border-[#5C4030]">
         <div className="flex items-center gap-4 bg-[#2C241E] rounded-3xl p-4">
           <div className="w-10 h-10 bg-[#C8A77E] rounded-2xl flex items-center justify-center text-3xl flex-shrink-0">
-            👨‍🍳
+            {profile?.avatar || '👨‍🍳'}
           </div>
           <div className="flex-1 min-w-0">
-            <p className="font-semibold text-white">Айбек Султанов</p>
-            <p className="text-xs text-[#C8A77E]">Администратор</p>
+            <p className="font-semibold text-white">{profile?.name || 'Айбек Султанов'}</p>
+            <p className="text-xs text-[#C8A77E]">{profile?.position || 'Администратор'}</p>
           </div>
         </div>
       </div>

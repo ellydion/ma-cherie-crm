@@ -1,109 +1,84 @@
 'use client';
 
-import { useState } from 'react';
-import { Plus, Search, Edit2, ChefHat, Trash2 } from 'lucide-react';
-import { useProductsStore } from '@/lib/store/productsStore';
-
-interface TechCardIngredient {
-  productId: number;
-  name: string;
-  quantity: number;
-  unit: string;
-  costPerUnit: number; // цена за единицу измерения
-}
+import { useState, useEffect } from 'react';
+import { Plus, Search, ChefHat, Edit2 } from 'lucide-react';
+import { supabase } from '@/lib/supabase/client';
 
 interface TechCard {
-  id: number;
+  id: string;
   name: string;
-  category: 'coffee' | 'kitchen' | 'drinks' | 'desserts';
-  ingredients: TechCardIngredient[];
-  yield: number; // выход в граммах/мл
-  costPrice: number; // автоматическая себестоимость
+  category: string;
+  yield: number;
+  cost_price: number;
 }
 
 export default function TechcardsPage() {
-  const { products } = useProductsStore();
-
-  const [techcards, setTechcards] = useState<TechCard[]>([
-    {
-      id: 1,
-      name: 'Латте',
-      category: 'coffee',
-      ingredients: [
-        { productId: 999, name: 'Кофе в зёрнах', quantity: 18, unit: 'г', costPerUnit: 4.5 },
-        { productId: 2, name: 'Молоко 3.2%', quantity: 240, unit: 'мл', costPerUnit: 0.45 },
-      ],
-      yield: 300,
-      costPrice: 128,
-    },
-  ]);
-
+  const [techcards, setTechcards] = useState<TechCard[]>([]);
+  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [selectedCard, setSelectedCard] = useState<TechCard | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [newCard, setNewCard] = useState<Partial<TechCard>>({
-    name: '',
-    category: 'coffee',
-    ingredients: [],
-    yield: 300,
-  });
+  const [editingCard, setEditingCard] = useState<TechCard | null>(null);
 
-  const filteredCards = techcards.filter(card =>
+  useEffect(() => {
+    fetchTechcards();
+  }, []);
+
+  const fetchTechcards = async () => {
+    const { data, error } = await supabase
+      .from('techcards')
+      .select('*')
+      .order('name');
+
+    if (error) console.error(error);
+    else setTechcards(data || []);
+    setLoading(false);
+  };
+
+  const filteredTechcards = techcards.filter(card =>
     card.name.toLowerCase().includes(search.toLowerCase())
   );
 
-  // Автоматический расчёт себестоимости
-  const calculateCostPrice = (ingredients: TechCardIngredient[]) => {
-    return ingredients.reduce((total, ing) => total + (ing.quantity * ing.costPerUnit), 0);
-  };
-
-  const handleSaveTechcard = () => {
-    if (!newCard.name) return;
-
-    const costPrice = calculateCostPrice(newCard.ingredients || []);
-
-    const card: TechCard = {
-      id: Date.now(),
-      name: newCard.name!,
-      category: newCard.category!,
-      ingredients: newCard.ingredients || [],
-      yield: newCard.yield || 300,
-      costPrice: Math.round(costPrice),
-    };
-
-    setTechcards([...techcards, card]);
+  const handleSave = async (cardData: any) => {
+    if (editingCard) {
+      await supabase
+        .from('techcards')
+        .update({
+          name: cardData.name,
+          category: cardData.category,
+          yield: cardData.yield,
+          cost_price: cardData.cost_price
+        })
+        .eq('id', editingCard.id);
+    } else {
+      await supabase
+        .from('techcards')
+        .insert([{
+          name: cardData.name,
+          category: cardData.category,
+          yield: cardData.yield,
+          cost_price: cardData.cost_price
+        }]);
+    }
+    fetchTechcards();
     setIsModalOpen(false);
-    setNewCard({ name: '', category: 'coffee', ingredients: [], yield: 300 });
+    setEditingCard(null);
   };
 
-  const addIngredientToNewCard = (product: any) => {
-    const existing = newCard.ingredients?.find((i: any) => i.productId === product.id);
-    if (existing) return;
-
-    const newIngredient: TechCardIngredient = {
-      productId: product.id,
-      name: product.name,
-      quantity: 1,
-      unit: product.unit || 'г',
-      costPerUnit: product.price / 10 || 5, // примерная цена за единицу
-    };
-
-    setNewCard({
-      ...newCard,
-      ingredients: [...(newCard.ingredients || []), newIngredient],
-    });
-  };
+  if (loading) return <p className="text-white text-center py-12">Загрузка техкарт...</p>;
 
   return (
     <div className="max-w-screen-2xl mx-auto">
       <div className="flex justify-between items-center mb-8">
         <div>
           <h1 className="text-4xl font-semibold tracking-tight text-white">Техкарты</h1>
-          <p className="text-[#C8A77E] mt-1">Рецептуры с автоматическим расчётом себестоимости</p>
+          <p className="text-[#C8A77E] mt-1">Рецептуры и себестоимость</p>
         </div>
 
         <button
-          onClick={() => setIsModalOpen(true)}
+          onClick={() => {
+            setEditingCard(null);
+            setIsModalOpen(true);
+          }}
           className="btn-primary flex items-center gap-3 px-8 py-4"
         >
           <Plus className="w-6 h-6" />
@@ -111,92 +86,84 @@ export default function TechcardsPage() {
         </button>
       </div>
 
-      {/* Поиск */}
       <input
         type="text"
         placeholder="Поиск техкарты..."
         value={search}
         onChange={(e) => setSearch(e.target.value)}
-        className="w-full bg-[#3F2A1F] border border-[#5C4030] focus:border-[#C8A77E] rounded-3xl px-6 py-5 mb-8 text-white"
+        className="w-full bg-[#3F2A1F] border border-[#5C4030] focus:border-[#C8A77E] rounded-3xl px-6 py-5 mb-8 text-white placeholder:text-gray-400"
       />
 
-      {/* Сетка техкарт */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-        {filteredCards.map((card) => (
+        {filteredTechcards.map((card) => (
           <div
             key={card.id}
-            onClick={() => setSelectedCard(card)}
             className="card p-6 hover:scale-105 transition-all cursor-pointer"
+            onClick={() => {
+              setEditingCard(card);
+              setIsModalOpen(true);
+            }}
           >
             <div className="flex justify-between">
               <div>
                 <p className="font-semibold text-white text-xl">{card.name}</p>
-                <p className="text-[#C8A77E] text-sm capitalize">{card.category}</p>
+                <p className="text-[#C8A77E] capitalize">{card.category}</p>
               </div>
               <ChefHat className="w-8 h-8 text-[#C8A77E]" />
             </div>
-            <div className="mt-6">
+            <div className="mt-8">
+              <p className="text-sm text-gray-400">Выход</p>
+              <p className="text-3xl font-medium text-white">{card.yield} г/мл</p>
+            </div>
+            <div className="mt-4">
               <p className="text-sm text-gray-400">Себестоимость</p>
-              <p className="text-4xl font-mono text-emerald-400">{card.costPrice} с</p>
+              <p className="text-4xl font-mono text-emerald-400">{card.cost_price} с</p>
             </div>
           </div>
         ))}
       </div>
 
-      {/* Модальное окно создания новой техкарты */}
+      {/* Модальное окно */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-          <div className="bg-[#3F2A1F] rounded-3xl p-8 w-full max-w-2xl max-h-[90vh] overflow-auto">
-            <h2 className="text-2xl font-semibold text-white mb-6">Новая техкарта</h2>
-
-            <input
-              type="text"
-              placeholder="Название блюда / напитка"
-              value={newCard.name || ''}
-              onChange={(e) => setNewCard({ ...newCard, name: e.target.value })}
-              className="w-full bg-[#2C241E] border border-[#5C4030] rounded-3xl px-6 py-4 mb-6 text-white"
-            />
-
-            {/* Выбор категории */}
-            <select
-              value={newCard.category}
-              onChange={(e) => setNewCard({ ...newCard, category: e.target.value as any })}
-              className="w-full bg-[#2C241E] border border-[#5C4030] rounded-3xl px-6 py-4 mb-6 text-white"
-            >
-              <option value="coffee">Кофейня</option>
-              <option value="kitchen">Кухня</option>
-              <option value="drinks">Напитки</option>
-              <option value="desserts">Десерты</option>
-            </select>
-
-            {/* Добавление ингредиентов */}
-            <h3 className="text-white font-medium mb-3">Ингредиенты</h3>
-            <div className="grid grid-cols-2 gap-3 mb-6">
-              {products.map((product: any) => (
-                <button
-                  key={product.id}
-                  onClick={() => addIngredientToNewCard(product)}
-                  className="bg-[#2C241E] hover:bg-[#3F2A1F] p-4 rounded-3xl text-left transition-all"
-                >
-                  <p className="text-white">{product.name}</p>
-                  <p className="text-[#C8A77E] text-sm">{product.price} с / ед.</p>
-                </button>
-              ))}
-            </div>
-
-            {/* Список выбранных ингредиентов */}
-            <div className="space-y-3 mb-8">
-              {newCard.ingredients?.map((ing: any, index: number) => (
-                <div key={index} className="flex items-center justify-between bg-[#2C241E] p-4 rounded-3xl">
-                  <span className="text-white">{ing.name}</span>
-                  <span className="text-gray-400">{ing.quantity} {ing.unit}</span>
+          <div className="bg-[#3F2A1F] rounded-3xl p-8 w-full max-w-md">
+            <h2 className="text-2xl font-semibold text-white mb-6">
+              {editingCard ? 'Редактировать техкарту' : 'Новая техкарта'}
+            </h2>
+            <div className="space-y-6">
+              <input id="name" type="text" defaultValue={editingCard?.name} placeholder="Название блюда" className="w-full bg-[#2C241E] border border-[#5C4030] rounded-3xl px-6 py-4 text-white" />
+              
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-sm text-gray-400 block mb-2">Категория</label>
+                  <select id="category" defaultValue={editingCard?.category} className="w-full bg-[#2C241E] border border-[#5C4030] rounded-3xl px-6 py-4 text-white">
+                    <option value="coffee">Кофейня</option>
+                    <option value="kitchen">Кухня</option>
+                    <option value="drinks">Напитки</option>
+                    <option value="desserts">Десерты</option>
+                  </select>
                 </div>
-              ))}
+                <div>
+                  <label className="text-sm text-gray-400 block mb-2">Выход (г/мл)</label>
+                  <input id="yield" type="number" defaultValue={editingCard?.yield} className="w-full bg-[#2C241E] border border-[#5C4030] rounded-3xl px-6 py-4 text-white" />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-sm text-gray-400 block mb-2">Себестоимость (сом)</label>
+                <input id="cost_price" type="number" defaultValue={editingCard?.cost_price} className="w-full bg-[#2C241E] border border-[#5C4030] rounded-3xl px-6 py-4 text-white" />
+              </div>
             </div>
 
-            <div className="flex gap-4">
-              <button onClick={() => setIsModalOpen(false)} className="flex-1 py-4 rounded-3xl border border-[#5C4030] text-white">Отмена</button>
-              <button onClick={handleSaveTechcard} className="flex-1 py-4 rounded-3xl bg-[#C8A77E] text-[#3F2A1F] font-medium">Сохранить техкарту</button>
+            <div className="flex gap-4 mt-10">
+              <button onClick={() => { setIsModalOpen(false); setEditingCard(null); }} className="flex-1 py-4 rounded-3xl border border-[#5C4030] text-white">Отмена</button>
+              <button onClick={() => {
+                const name = (document.getElementById('name') as HTMLInputElement).value;
+                const category = (document.getElementById('category') as HTMLSelectElement).value;
+                const yieldVal = parseFloat((document.getElementById('yield') as HTMLInputElement).value) || 0;
+                const costPrice = parseFloat((document.getElementById('cost_price') as HTMLInputElement).value) || 0;
+                handleSave({ name, category, yield: yieldVal, cost_price: costPrice });
+              }} className="flex-1 py-4 rounded-3xl bg-[#C8A77E] text-[#3F2A1F] font-medium">Сохранить</button>
             </div>
           </div>
         </div>
