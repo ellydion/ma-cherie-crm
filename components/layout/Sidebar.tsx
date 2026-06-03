@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import Image from 'next/image';
 import { useProfileStore } from '@/lib/store/profileStore';
 import { 
   LayoutDashboard, 
@@ -32,19 +33,29 @@ export default function Sidebar() {
 
   return (
     <div className="w-72 h-screen bg-[#3F2A1F] border-r border-[#5C4030] flex flex-col shadow-2xl">
-      {/* Logo */}
+      
+      {/* === Логотип с next/image === */}
       <div className="p-6 border-b border-[#5C4030]">
-        <div className="flex items-center gap-3">
-          <div className="w-11 h-11 bg-[#C8A77E] rounded-3xl flex items-center justify-center text-4xl shadow-inner">
-            ☕
+        <Link href="/" className="flex items-center gap-4 group">
+          <div className="relative w-14 h-14 flex-shrink-0">
+            <Image
+              src="/ma-cherie-logo.jpg"
+              alt="Ma Cherie Logo"
+              width={56}
+              height={56}
+              className="object-contain"
+              priority
+            />
           </div>
           <div>
-            <h1 className="text-3xl font-semibold tracking-tighter text-white">
+            <h1 className="text-3xl font-semibold tracking-tighter text-white group-hover:text-[#C8A77E] transition-colors">
               Ma Cherie
             </h1>
-            <p className="text-sm text-[#C8A77E] tracking-widest -mt-1">COFFEE & MORE</p>
+            <p className="text-sm text-[#C8A77E] tracking-widest -mt-1">
+              COFFEE & MORE
+            </p>
           </div>
-        </div>
+        </Link>
       </div>
 
       {/* Навигация */}
@@ -68,15 +79,19 @@ export default function Sidebar() {
         })}
       </nav>
 
-      {/* Нижняя часть — профиль сотрудника */}
+      {/* Профиль сотрудника */}
       <div className="p-6 border-t border-[#5C4030]">
         <div className="flex items-center gap-4 bg-[#2C241E] rounded-3xl p-4">
-          <div className="w-10 h-10 bg-[#C8A77E] rounded-2xl flex items-center justify-center text-3xl flex-shrink-0">
+          <div className="w-12 h-12 bg-[#C8A77E] rounded-2xl flex items-center justify-center text-4xl flex-shrink-0 shadow-inner">
             {profile?.avatar || '👨‍🍳'}
           </div>
           <div className="flex-1 min-w-0">
-            <p className="font-semibold text-white">{profile?.name || 'Айбек Султанов'}</p>
-            <p className="text-xs text-[#C8A77E]">{profile?.position || 'Администратор'}</p>
+            <p className="font-semibold text-white text-[15px] truncate">
+              {profile?.name || 'Айбек Султанов'}
+            </p>
+            <p className="text-xs text-[#C8A77E] truncate">
+              {profile?.position || 'Администратор'}
+            </p>
           </div>
         </div>
       </div>

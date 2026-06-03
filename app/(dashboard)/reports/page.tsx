@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Calendar, Download, Printer } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
 
 export default function ReportsPage() {
@@ -22,47 +21,43 @@ export default function ReportsPage() {
     if (period === 'week') startDate.setDate(now.getDate() - 7);
     if (period === 'month') startDate.setMonth(now.getMonth() - 1);
 
-    const { data: orders, error } = await supabase
+    // === 1. Выручка и заказы ===
+    const { data: orders } = await supabase
       .from('orders')
-      .select(`
-        *,
-        order_items (*)
-      `)
-      .gte('created_at', startDate.toISOString())
-      .order('created_at', { ascending: false });
+      .select('total, created_at')
+      .gte('created_at', startDate.toISOString());
 
-    if (error) {
-      console.error(error);
-      setLoading(false);
-      return;
-    }
+    const totalRevenue = orders?.reduce((sum: number, o: any) => sum + Number(o.total), 0) || 0;
+    const totalOrders = orders?.length || 0;
+    const avgCheck = totalOrders > 0 ? Math.round(totalRevenue / totalOrders) : 0;
 
-    const totalRevenue = orders.reduce((sum: number, o: any) => sum + Number(o.total), 0);
-    const totalOrders = orders.length;
+    // === 2. РЕАЛЬНЫЙ ЗАКУП из таблицы deliveries ===
+    const { data: deliveries } = await supabase
+      .from('deliveries')
+      .select('total_amount, delivery_date')
+      .gte('delivery_date', startDate.toISOString().split('T')[0]);
 
-    // Примерные расчёты (можно уточнить позже)
-    const cogs = Math.round(totalRevenue * 0.38);           // себестоимость 38%
-    const grossProfit = totalRevenue - cogs;
-    const taxes = Math.round(totalRevenue * 0.05);          // налог 5%
+    const totalPurchases = deliveries?.reduce((sum: number, d: any) => sum + Number(d.total_amount), 0) || 0;
+
+    // === 3. Расчёт прибыли ===
+    const grossProfit = totalRevenue - totalPurchases;
+    const taxes = Math.round(totalRevenue * 0.05); // 5% налог (можно изменить)
     const netProfit = grossProfit - taxes;
 
-    // Разбивка платежей
-    const paymentBreakdown = {
-      cash: Math.round(totalRevenue * 0.45),
-      card: Math.round(totalRevenue * 0.40),
-      transfer: Math.round(totalRevenue * 0.15),
-    };
+    // Средний % закупа от выручки
+    const purchasePercent = totalRevenue > 0 ? Math.round((totalPurchases / totalRevenue) * 100) : 0;
 
     setReportData({
       totalRevenue,
       totalOrders,
-      avgCheck: totalOrders > 0 ? Math.round(totalRevenue / totalOrders) : 0,
-      cogs,
+      avgCheck,
+      totalPurchases,
       grossProfit,
       taxes,
       netProfit,
-      paymentBreakdown,
-      orders: orders || []
+      purchasePercent,
+      orders: orders || [],
+      deliveries: deliveries || []
     });
 
     setLoading(false);
@@ -75,16 +70,7 @@ export default function ReportsPage() {
       <div className="flex justify-between items-center mb-8">
         <div>
           <h1 className="text-4xl font-semibold tracking-tight text-white">Отчёты</h1>
-          <p className="text-[#C8A77E] mt-1">Финансовый анализ и прибыль</p>
-        </div>
-
-        <div className="flex gap-3">
-          <button onClick={() => window.print()} className="flex items-center gap-3 px-6 py-4 border border-[#5C4030] rounded-3xl hover:bg-[#5C4030]">
-            <Printer className="w-5 h-5" /> Печать
-          </button>
-          <button className="btn-primary flex items-center gap-3 px-8 py-4">
-            <Download className="w-5 h-5" /> Скачать PDF
-          </button>
+          <p className="text-[#C8A77E] mt-1">Выручка, закупки и прибыль</p>
         </div>
       </div>
 
@@ -102,12 +88,13 @@ export default function ReportsPage() {
           <p className="text-5xl font-mono text-white mt-4">{reportData.totalRevenue.toLocaleString('ru-RU')} с</p>
         </div>
         <div className="card p-8">
-          <p className="text-[#C8A77E]">Заказов</p>
-          <p className="text-5xl font-mono text-white mt-4">{reportData.totalOrders}</p>
+          <p className="text-[#C8A77E]">Закупки</p>
+          <p className="text-5xl font-mono text-amber-400 mt-4">{reportData.totalPurchases.toLocaleString('ru-RU')} с</p>
+          <p className="text-sm text-gray-400 mt-1">({reportData.purchasePercent}% от выручки)</p>
         </div>
         <div className="card p-8">
-          <p className="text-[#C8A77E]">Средний чек</p>
-          <p className="text-5xl font-mono text-white mt-4">{reportData.avgCheck} с</p>
+          <p className="text-[#C8A77E]">Валовая прибыль</p>
+          <p className="text-5xl font-mono text-emerald-400 mt-4">{reportData.grossProfit.toLocaleString('ru-RU')} с</p>
         </div>
         <div className="card p-8 bg-emerald-900/30 border-emerald-500">
           <p className="text-emerald-400">Чистая прибыль</p>
@@ -119,10 +106,10 @@ export default function ReportsPage() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         {/* Прибыль */}
         <div className="card p-8">
-          <h3 className="text-xl font-semibold mb-6">Прибыль и затраты</h3>
+          <h3 className="text-xl font-semibold mb-6">Расчёт прибыли</h3>
           <div className="space-y-6">
             <div className="flex justify-between"><span className="text-gray-400">Выручка</span><span className="font-medium">{reportData.totalRevenue} с</span></div>
-            <div className="flex justify-between"><span className="text-gray-400">Себестоимость (продукты)</span><span className="font-medium text-amber-400">-{reportData.cogs} с</span></div>
+            <div className="flex justify-between"><span className="text-gray-400">Закупки (реальные)</span><span className="font-medium text-amber-400">-{reportData.totalPurchases} с</span></div>
             <div className="h-px bg-[#5C4030]" />
             <div className="flex justify-between"><span className="text-gray-400">Валовая прибыль</span><span className="font-medium">{reportData.grossProfit} с</span></div>
             <div className="flex justify-between"><span className="text-gray-400">Налоги (5%)</span><span className="font-medium text-red-400">-{reportData.taxes} с</span></div>
@@ -131,41 +118,14 @@ export default function ReportsPage() {
           </div>
         </div>
 
-        {/* Разбивка платежей */}
+        {/* Статистика */}
         <div className="card p-8">
-          <h3 className="text-xl font-semibold mb-6">Способы оплаты</h3>
+          <h3 className="text-xl font-semibold mb-6">Статистика</h3>
           <div className="space-y-6">
-            <div className="flex justify-between"><span className="text-gray-400">Наличные</span><span className="font-medium">{reportData.paymentBreakdown.cash} с</span></div>
-            <div className="flex justify-between"><span className="text-gray-400">Карта</span><span className="font-medium">{reportData.paymentBreakdown.card} с</span></div>
-            <div className="flex justify-between"><span className="text-gray-400">Перевод</span><span className="font-medium">{reportData.paymentBreakdown.transfer} с</span></div>
+            <div className="flex justify-between"><span className="text-gray-400">Количество заказов</span><span className="font-medium">{reportData.totalOrders}</span></div>
+            <div className="flex justify-between"><span className="text-gray-400">Средний чек</span><span className="font-medium">{reportData.avgCheck} с</span></div>
+            <div className="flex justify-between"><span className="text-gray-400">Средний % закупа</span><span className="font-medium">{reportData.purchasePercent}%</span></div>
           </div>
-        </div>
-      </div>
-
-      {/* Таблица последних заказов */}
-      <div className="mt-12">
-        <h3 className="text-xl font-semibold mb-6">Последние заказы</h3>
-        <div className="card overflow-hidden">
-          <table className="w-full">
-            <thead>
-              <tr className="border-b border-[#5C4030]">
-                <th className="text-left p-6">Дата</th>
-                <th className="text-left p-6">Стол</th>
-                <th className="text-left p-6">Сумма</th>
-                <th className="text-left p-6">Оплата</th>
-              </tr>
-            </thead>
-            <tbody>
-              {reportData.orders.slice(0, 8).map((order: any) => (
-                <tr key={order.id} className="border-b border-[#5C4030] hover:bg-[#3F2A1F]/70">
-                  <td className="p-6 text-gray-400">{new Date(order.created_at).toLocaleDateString('ru-RU')}</td>
-                  <td className="p-6 font-medium">{order.table_number}</td>
-                  <td className="p-6 font-mono">{order.total} с</td>
-                  <td className="p-6 text-emerald-400">{order.payment_method}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
         </div>
       </div>
     </div>

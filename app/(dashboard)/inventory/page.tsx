@@ -1,11 +1,10 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Package, Plus, AlertTriangle, Coffee, Utensils, Upload, Trash2, Edit2 } from 'lucide-react';
-import * as XLSX from 'xlsx';
+import { Plus, AlertTriangle, Edit2, Trash2 } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
 
-interface Product {
+interface InventoryItem {
   id: string;
   name: string;
   unit: string;
@@ -15,80 +14,96 @@ interface Product {
 }
 
 export default function InventoryPage() {
-  const [activeTab, setActiveTab] = useState<'coffee' | 'kitchen'>('coffee');
-  const [products, setProducts] = useState<Product[]>([]);
+  const [items, setItems] = useState<InventoryItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
+
+  const [form, setForm] = useState({
+    name: '',
+    unit: 'шт',
+    quantity: 0,
+    min_threshold: 5,
+    section: 'coffee' as 'coffee' | 'kitchen'
+  });
 
   useEffect(() => {
-    fetchProducts();
+    fetchInventory();
   }, []);
 
-  const fetchProducts = async () => {
+  // Загружаем ТОЛЬКО ингредиенты (is_ingredient = true)
+  const fetchInventory = async () => {
     const { data, error } = await supabase
       .from('products')
-      .select('*')
+      .select('id, name, unit, quantity, min_threshold, section')
+      .eq('is_ingredient', true)
       .order('name');
 
     if (error) console.error(error);
-    else setProducts(data || []);
+    else setItems(data || []);
     setLoading(false);
   };
 
-  const currentProducts = products.filter(p => p.section === activeTab);
+  const filteredItems = items.filter(item =>
+    item.name.toLowerCase().includes(search.toLowerCase())
+  );
 
   const getStatus = (quantity: number, minThreshold: number) => {
-    if (quantity <= 0) return { label: 'Отсутствует', color: 'bg-red-600' };
-    if (quantity < minThreshold) return { label: 'Низкий остаток', color: 'bg-amber-600' };
-    return { label: 'В наличии', color: 'bg-emerald-600' };
+    if (quantity <= 0) return { label: 'Отсутствует', color: 'bg-red-600 text-white' };
+    if (quantity < minThreshold) return { label: 'Низкий остаток', color: 'bg-amber-600 text-white' };
+    return { label: 'В наличии', color: 'bg-emerald-600 text-white' };
   };
 
-  const handleSave = async (productData: any) => {
-    if (editingProduct) {
-      await supabase
-        .from('products')
-        .update(productData)
-        .eq('id', editingProduct.id);
+  const openModal = (item?: InventoryItem) => {
+    if (item) {
+      setEditingItem(item);
+      setForm({
+        name: item.name,
+        unit: item.unit,
+        quantity: item.quantity,
+        min_threshold: item.min_threshold,
+        section: item.section
+      });
     } else {
-      await supabase.from('products').insert([productData]);
+      setEditingItem(null);
+      setForm({
+        name: '',
+        unit: 'шт',
+        quantity: 0,
+        min_threshold: 5,
+        section: 'coffee'
+      });
     }
-    fetchProducts();
+    setIsModalOpen(true);
+  };
+
+  const handleSave = async () => {
+    if (!form.name) {
+      alert('Название обязательно');
+      return;
+    }
+
+    if (editingItem) {
+      await supabase.from('products').update(form).eq('id', editingItem.id);
+    } else {
+      await supabase.from('products').insert([{
+        ...form,
+        is_ingredient: true,           // ← автоматически помечаем как ингредиент
+        price: 0,
+        category: form.section
+      }]);
+    }
+
+    fetchInventory();
     setIsModalOpen(false);
-    setEditingProduct(null);
+    setEditingItem(null);
   };
 
-  const deleteProduct = async (id: string) => {
-    if (confirm('Удалить продукт?')) {
-      await supabase.from('products').delete().eq('id', id);
-      fetchProducts();
-    }
-  };
-
-  const importXLSX = (e: any) => {
-    const file = e.target.files[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = async (event) => {
-      const data = new Uint8Array(event.target?.result as ArrayBuffer);
-      const workbook = XLSX.read(data, { type: 'array' });
-      const sheet = workbook.Sheets[workbook.SheetNames[0]];
-      const json = XLSX.utils.sheet_to_json(sheet);
-
-      const newProducts = json.map((row: any) => ({
-        name: row['Название'] || row.name,
-        unit: row['Ед'] || row.unit || 'шт',
-        quantity: parseFloat(row['Остаток'] || row.quantity) || 0,
-        min_threshold: parseFloat(row['Мин'] || row.min_threshold) || 5,
-        section: row['Секция'] === 'Кухня' ? 'kitchen' : 'coffee'
-      }));
-
-      await supabase.from('products').insert(newProducts);
-      fetchProducts();
-      alert('Импорт завершён!');
-    };
-    reader.readAsArrayBuffer(file);
+  const deleteItem = async (id: string) => {
+    if (!confirm('Удалить этот ингредиент?')) return;
+    await supabase.from('products').delete().eq('id', id);
+    fetchInventory();
   };
 
   if (loading) return <p className="text-white text-center py-12">Загрузка склада...</p>;
@@ -98,71 +113,61 @@ export default function InventoryPage() {
       <div className="flex justify-between items-center mb-8">
         <div>
           <h1 className="text-4xl font-semibold tracking-tight text-white">Склад</h1>
-          <p className="text-[#C8A77E]">Продукты • Автоматические оповещения</p>
+          <p className="text-[#C8A77E]">Только ингредиенты для приготовления блюд</p>
         </div>
 
-        <div className="flex gap-4">
-          <label className="btn-primary flex items-center gap-3 px-8 py-4 cursor-pointer">
-            <Upload className="w-6 h-6" />
-            Импорт XLSX
-            <input type="file" accept=".xlsx,.xls" onChange={importXLSX} className="hidden" />
-          </label>
-
-          <button
-            onClick={() => {
-              setEditingProduct(null);
-              setIsModalOpen(true);
-            }}
-            className="btn-primary flex items-center gap-3 px-8 py-4"
-          >
-            <Plus className="w-6 h-6" />
-            Добавить продукт
-          </button>
-        </div>
-      </div>
-
-      {/* Табы */}
-      <div className="flex gap-2 mb-8 bg-[#3F2A1F] p-2 rounded-3xl w-fit">
-        <button onClick={() => setActiveTab('coffee')} className={`flex items-center gap-3 px-8 py-4 rounded-3xl font-medium ${activeTab === 'coffee' ? 'bg-[#C8A77E] text-[#3F2A1F]' : 'text-white hover:bg-[#5C4030]'}`}>
-          <Coffee className="w-5 h-5" /> Кофейня
-        </button>
-        <button onClick={() => setActiveTab('kitchen')} className={`flex items-center gap-3 px-8 py-4 rounded-3xl font-medium ${activeTab === 'kitchen' ? 'bg-[#C8A77E] text-[#3F2A1F]' : 'text-white hover:bg-[#5C4030]'}`}>
-          <Utensils className="w-5 h-5" /> Кухня
+        <button onClick={() => openModal()} className="btn-primary flex items-center gap-3 px-8 py-4">
+          <Plus className="w-6 h-6" /> Добавить ингредиент
         </button>
       </div>
 
-      {/* Таблица */}
+      <input
+        type="text"
+        placeholder="Поиск ингредиента..."
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        className="w-full bg-[#3F2A1F] border border-[#5C4030] focus:border-[#C8A77E] rounded-3xl px-6 py-5 mb-8 text-white placeholder:text-gray-400"
+      />
+
       <div className="card overflow-hidden">
         <table className="w-full">
           <thead>
             <tr className="border-b border-[#5C4030]">
-              <th className="text-left p-6">Продукт</th>
+              <th className="text-left p-6">Ингредиент</th>
               <th className="text-left p-6">Остаток</th>
-              <th className="text-left p-6">Ед.</th>
+              <th className="text-left p-6">Ед. изм.</th>
               <th className="text-left p-6">Мин. остаток</th>
               <th className="text-left p-6">Статус</th>
-              <th className="w-32"></th>
+              <th className="w-24"></th>
             </tr>
           </thead>
           <tbody>
-            {currentProducts.map((product) => {
-              const status = getStatus(product.quantity, product.min_threshold);
+            {filteredItems.length === 0 && (
+              <tr>
+                <td colSpan={6} className="p-12 text-center text-gray-400">
+                  Ингредиентов пока нет. Добавьте первый ингредиент.
+                </td>
+              </tr>
+            )}
+
+            {filteredItems.map((item) => {
+              const status = getStatus(item.quantity, item.min_threshold);
               return (
-                <tr key={product.id} className="border-b border-[#5C4030] hover:bg-[#3F2A1F]/70">
-                  <td className="p-6 font-medium text-white">{product.name}</td>
-                  <td className="p-6 font-mono text-3xl">{product.quantity}</td>
-                  <td className="p-6 text-gray-400">{product.unit}</td>
-                  <td className="p-6 text-gray-400">{product.min_threshold}</td>
+                <tr key={item.id} className="border-b border-[#5C4030] hover:bg-[#3F2A1F]/70">
+                  <td className="p-6 font-medium text-white">{item.name}</td>
+                  <td className="p-6 font-mono text-3xl">{item.quantity}</td>
+                  <td className="p-6 text-gray-400">{item.unit}</td>
+                  <td className="p-6 text-gray-400">{item.min_threshold}</td>
                   <td className="p-6">
-                    <span className={`px-5 py-2 rounded-3xl text-sm font-medium text-white ${status.color}`}>
+                    <span className={`px-5 py-2 rounded-3xl text-sm font-medium ${status.color}`}>
                       {status.label}
                     </span>
                   </td>
                   <td className="p-6 flex gap-3">
-                    <button onClick={() => { setEditingProduct(product); setIsModalOpen(true); }} className="text-[#C8A77E] hover:text-white">
+                    <button onClick={() => openModal(item)} className="text-[#C8A77E] hover:text-white">
                       <Edit2 className="w-5 h-5" />
                     </button>
-                    <button onClick={() => deleteProduct(product.id)} className="text-red-400 hover:text-red-500">
+                    <button onClick={() => deleteItem(item.id)} className="text-red-400 hover:text-red-500">
                       <Trash2 className="w-5 h-5" />
                     </button>
                   </td>
@@ -178,42 +183,67 @@ export default function InventoryPage() {
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
           <div className="bg-[#3F2A1F] rounded-3xl p-8 w-full max-w-md">
             <h2 className="text-2xl font-semibold text-white mb-6">
-              {editingProduct ? 'Редактировать продукт' : 'Новый продукт'}
+              {editingItem ? 'Редактировать ингредиент' : 'Новый ингредиент'}
             </h2>
+
             <div className="space-y-6">
-              <input id="name" type="text" defaultValue={editingProduct?.name} placeholder="Название" className="w-full bg-[#2C241E] border border-[#5C4030] rounded-3xl px-6 py-4 text-white" />
-              <div className="grid grid-cols-3 gap-4">
+              <div>
+                <label className="text-sm text-gray-400 block mb-2">Название</label>
+                <input
+                  type="text"
+                  value={form.name}
+                  onChange={(e) => setForm({ ...form, name: e.target.value })}
+                  className="w-full bg-[#2C241E] border border-[#5C4030] rounded-3xl px-6 py-4 text-white"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="text-sm text-gray-400">Ед. изм.</label>
-                  <input id="unit" type="text" defaultValue={editingProduct?.unit || 'шт'} className="w-full bg-[#2C241E] border border-[#5C4030] rounded-3xl px-6 py-4 text-white" />
+                  <label className="text-sm text-gray-400 block mb-2">Ед. измерения</label>
+                  <input
+                    type="text"
+                    value={form.unit}
+                    onChange={(e) => setForm({ ...form, unit: e.target.value })}
+                    className="w-full bg-[#2C241E] border border-[#5C4030] rounded-3xl px-6 py-4 text-white"
+                  />
                 </div>
                 <div>
-                  <label className="text-sm text-gray-400">Остаток</label>
-                  <input id="quantity" type="number" defaultValue={editingProduct?.quantity} className="w-full bg-[#2C241E] border border-[#5C4030] rounded-3xl px-6 py-4 text-white" />
-                </div>
-                <div>
-                  <label className="text-sm text-gray-400">Мин. остаток</label>
-                  <input id="min_threshold" type="number" defaultValue={editingProduct?.min_threshold} className="w-full bg-[#2C241E] border border-[#5C4030] rounded-3xl px-6 py-4 text-white" />
+                  <label className="text-sm text-gray-400 block mb-2">Мин. остаток</label>
+                  <input
+                    type="number"
+                    value={form.min_threshold}
+                    onChange={(e) => setForm({ ...form, min_threshold: parseInt(e.target.value) || 0 })}
+                    className="w-full bg-[#2C241E] border border-[#5C4030] rounded-3xl px-6 py-4 text-white"
+                  />
                 </div>
               </div>
+
+              <div>
+                <label className="text-sm text-gray-400 block mb-2">Текущий остаток</label>
+                <input
+                  type="number"
+                  value={form.quantity}
+                  onChange={(e) => setForm({ ...form, quantity: parseFloat(e.target.value) || 0 })}
+                  className="w-full bg-[#2C241E] border border-[#5C4030] rounded-3xl px-6 py-4 text-white"
+                />
+              </div>
+
               <div>
                 <label className="text-sm text-gray-400 block mb-2">Секция</label>
-                <select id="section" defaultValue={editingProduct?.section} className="w-full bg-[#2C241E] border border-[#5C4030] rounded-3xl px-6 py-4 text-white">
+                <select
+                  value={form.section}
+                  onChange={(e) => setForm({ ...form, section: e.target.value as 'coffee' | 'kitchen' })}
+                  className="w-full bg-[#2C241E] border border-[#5C4030] rounded-3xl px-6 py-4 text-white"
+                >
                   <option value="coffee">Кофейня</option>
                   <option value="kitchen">Кухня</option>
                 </select>
               </div>
             </div>
+
             <div className="flex gap-4 mt-10">
-              <button onClick={() => { setIsModalOpen(false); setEditingProduct(null); }} className="flex-1 py-4 rounded-3xl border border-[#5C4030] text-white">Отмена</button>
-              <button onClick={() => {
-                const name = (document.getElementById('name') as HTMLInputElement).value;
-                const unit = (document.getElementById('unit') as HTMLInputElement).value;
-                const quantity = parseFloat((document.getElementById('quantity') as HTMLInputElement).value) || 0;
-                const min_threshold = parseFloat((document.getElementById('min_threshold') as HTMLInputElement).value) || 5;
-                const section = (document.getElementById('section') as HTMLSelectElement).value as 'coffee' | 'kitchen';
-                handleSave({ name, unit, quantity, min_threshold, section });
-              }} className="flex-1 py-4 rounded-3xl bg-[#C8A77E] text-[#3F2A1F]">Сохранить</button>
+              <button onClick={() => setIsModalOpen(false)} className="flex-1 py-4 rounded-3xl border border-[#5C4030] text-white">Отмена</button>
+              <button onClick={handleSave} className="flex-1 py-4 rounded-3xl bg-[#C8A77E] text-[#3F2A1F] font-medium">Сохранить</button>
             </div>
           </div>
         </div>

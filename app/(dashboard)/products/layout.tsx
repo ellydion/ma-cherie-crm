@@ -19,9 +19,8 @@ export default function ProductsLayout({
         <button 
           onClick={() => window.location.href = '/products'}
           className="btn-primary flex items-center gap-3 px-8 py-4 text-lg"
-        >
-          <Plus className="w-6 h-6" />
-          Добавить товар
+        >   
+          <Plus className="w-6 h-6" /> Все товары
         </button>
       </div>
 

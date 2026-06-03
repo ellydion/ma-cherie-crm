@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Coffee, Utensils, GlassWater, Cake, Plus, Minus, Trash2, Search } from 'lucide-react';
+import { Coffee, Utensils, GlassWater, Cake, Plus, Minus, Trash2 } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
 
 interface Product {
@@ -34,16 +34,15 @@ export default function PosPage() {
   const [tableNumber, setTableNumber] = useState('');
 
   const currentOrder = openOrders.find(o => o.id === currentOrderId);
+  const subtotal = currentOrder
+    ? currentOrder.items.reduce((sum, item) => sum + item.price * item.quantity, 0)
+    : 0;
 
-  // Загрузка товаров из Supabase
+  // Загрузка товаров
   useEffect(() => {
     const loadProducts = async () => {
-      const { data, error } = await supabase
-        .from('products')
-        .select('id, name, price, category')
-        .order('name');
-      if (error) console.error(error);
-      else setProducts(data || []);
+      const { data } = await supabase.from('products').select('*').order('name');
+      if (data) setProducts(data);
     };
     loadProducts();
   }, []);
@@ -54,6 +53,7 @@ export default function PosPage() {
     return categoryMatch && searchMatch;
   });
 
+  // Создать новый заказ
   const createNewOrder = () => {
     const newOrder: Order = {
       id: 'ORD-' + Date.now(),
@@ -66,10 +66,63 @@ export default function PosPage() {
     setTableNumber('');
   };
 
-  const addToOrder = (product: Product) => {
+  // === ПРОВЕРКА: можно ли добавить товар (хватает ли ингредиентов) ===
+  const canAddToOrder = async (product: Product): Promise<boolean> => {
+    // Ищем техкарту по названию
+    const { data: techcard } = await supabase
+      .from('techcards')
+      .select('id')
+      .ilike('name', `%${product.name}%`)
+      .single();
+
+    // Если техкарты нет — проверяем остаток самого товара
+    if (!techcard) {
+      const { data: prod } = await supabase
+        .from('products')
+        .select('quantity')
+        .eq('id', product.id)
+        .single();
+
+      return prod ? prod.quantity >= 1 : false;
+    }
+
+    // Если техкарта есть — проверяем все ингредиенты
+    const { data: ingredients } = await supabase
+      .from('techcard_ingredients')
+      .select('product_id, quantity')
+      .eq('techcard_id', techcard.id);
+
+    if (!ingredients || ingredients.length === 0) return true;
+
+    for (const ing of ingredients) {
+      const { data: prod } = await supabase
+        .from('products')
+        .select('quantity')
+        .eq('id', ing.product_id)
+        .single();
+
+      if (!prod || prod.quantity < ing.quantity) {
+        return false;
+      }
+    }
+
+    return true;
+  };
+
+  // === ДОБАВИТЬ ТОВАР В ЗАКАЗ (с блокировкой) ===
+  const addToOrder = async (product: Product) => {
     if (!currentOrder) return;
+
+    const canAdd = await canAddToOrder(product);
+
+    if (!canAdd) {
+      alert(`Недостаточно ингредиентов на складе для «${product.name}»`);
+      return;
+    }
+
     setOpenOrders(openOrders.map(order => {
       if (order.id !== currentOrder.id) return order;
+
       const existing = order.items.find(i => i.id === product.id);
       if (existing) {
         return {
@@ -86,6 +139,7 @@ export default function PosPage() {
     }));
   };
 
+  // Изменить количество
   const changeQuantity = (productId: string, delta: number) => {
     if (!currentOrder) return;
     setOpenOrders(openOrders.map(order => {
@@ -101,6 +155,7 @@ export default function PosPage() {
     }));
   };
 
+  // Удалить товар из заказа
   const removeFromOrder = (productId: string) => {
     if (!currentOrder) return;
     setOpenOrders(openOrders.map(order => {
@@ -112,32 +167,28 @@ export default function PosPage() {
     }));
   };
 
-  const subtotal = currentOrder
-    ? currentOrder.items.reduce((sum, item) => sum + item.price * item.quantity, 0)
-    : 0;
-
-  const closeOrder = async () => {
+  // === ЗАКРЫТИЕ ЗАКАЗА + АВТОМАТИЧЕСКОЕ СПИСАНИЕ ИНГРЕДИЕНТОВ ===
+  const closeOrder = async (paymentMethod: 'cash' | 'transfer') => {
     if (!currentOrder || currentOrder.items.length === 0) return;
 
-    // Сохраняем заказ в Supabase
-    const { data: orderData, error: orderError } = await supabase
+    // 1. Сохраняем заказ
+    const { data: orderData, error } = await supabase
       .from('orders')
       .insert([{
         table_number: currentOrder.table,
         total: subtotal,
-        payment_method: 'cash',
+        payment_method: paymentMethod,
         status: 'completed'
       }])
       .select()
       .single();
 
-    if (orderError) {
-      console.error('Ошибка сохранения заказа:', orderError);
-      alert('Не удалось сохранить заказ');
+    if (error) {
+      alert('Ошибка сохранения заказа');
       return;
     }
 
-    // Сохраняем позиции заказа
+    // 2. Сохраняем позиции заказа
     const orderItems = currentOrder.items.map(item => ({
       order_id: orderData.id,
       product_name: item.name,
@@ -147,9 +198,34 @@ export default function PosPage() {
 
     await supabase.from('order_items').insert(orderItems);
 
-    // Удаляем закрытый заказ из открытых
+    // === АВТОМАТИЧЕСКОЕ СПИСАНИЕ ИНГРЕДИЕНТОВ ===
+    for (const item of currentOrder.items) {
+      const { data: techcard } = await supabase
+        .from('techcards')
+        .select('id')
+        .ilike('name', `%${item.name}%`)
+        .single();
+
+      if (techcard) {
+        const { data: ingredients } = await supabase
+          .from('techcard_ingredients')
+          .select('product_id, quantity')
+          .eq('techcard_id', techcard.id);
+
+        if (ingredients && ingredients.length > 0) {
+          for (const ing of ingredients) {
+            await supabase.rpc('decrement_product_quantity', {
+              product_id: ing.product_id,
+              qty: ing.quantity * item.quantity
+            });
+          }
+        }
+      }
+    }
+
+    // 3. Удаляем заказ из открытых
     setOpenOrders(openOrders.filter(o => o.id !== currentOrder.id));
-    setCurrentOrderId(openOrders.length > 1 ? openOrders[0].id : null);
+    setCurrentOrderId(null);
   };
 
   return (
@@ -157,12 +233,11 @@ export default function PosPage() {
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-4xl font-semibold tracking-tight text-white">Касса POS</h1>
         <button onClick={createNewOrder} className="btn-primary flex items-center gap-3 px-8 py-4">
-          <Plus className="w-6 h-6" />
-          Новый заказ
+          <Plus className="w-6 h-6" /> Новый заказ
         </button>
       </div>
 
-      {/* Вкладки открытых заказов */}
+      {/* Вкладки заказов */}
       <div className="flex gap-2 mb-6 overflow-x-auto pb-2">
         {openOrders.map(order => (
           <button
@@ -202,7 +277,7 @@ export default function PosPage() {
             {filteredProducts.map(product => (
               <button
                 key={product.id}
-                onClick={() => currentOrder && addToOrder(product)}
+                onClick={() => addToOrder(product)}
                 className="card h-28 flex flex-col justify-center items-center hover:scale-105 active:scale-95 transition-all p-4 text-center"
               >
                 <p className="font-semibold text-white text-base leading-tight">{product.name}</p>
@@ -246,13 +321,23 @@ export default function PosPage() {
               <span>{subtotal} с</span>
             </div>
 
-            <button
-              onClick={closeOrder}
-              disabled={!currentOrder || currentOrder.items.length === 0}
-              className="w-full py-7 text-2xl font-semibold rounded-3xl bg-[#C8A77E] text-[#3F2A1F] disabled:bg-gray-600 disabled:text-gray-400"
-            >
-              Закрыть заказ
-            </button>
+            {/* Кнопки оплаты */}
+            <div className="grid grid-cols-2 gap-4">
+              <button
+                onClick={() => closeOrder('cash')}
+                disabled={!currentOrder || currentOrder.items.length === 0}
+                className="py-7 text-2xl font-semibold rounded-3xl bg-emerald-600 text-white disabled:bg-gray-600 disabled:text-gray-400"
+              >
+                Наличка
+              </button>
+              <button
+                onClick={() => closeOrder('transfer')}
+                disabled={!currentOrder || currentOrder.items.length === 0}
+                className="py-7 text-2xl font-semibold rounded-3xl bg-blue-600 text-white disabled:bg-gray-600 disabled:text-gray-400"
+              >
+                Перевод
+              </button>
+            </div>
           </div>
         </div>
       </div>

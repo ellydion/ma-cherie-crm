@@ -3,13 +3,15 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase/client';
-import { Coffee, Users, TrendingUp, Calendar } from 'lucide-react';
+import { Coffee, TrendingUp, Calendar } from 'lucide-react';
+export const dynamic = 'force-dynamic';
 
 export default function DashboardPage() {
   const [todayRevenue, setTodayRevenue] = useState(0);
   const [todayOrders, setTodayOrders] = useState(0);
   const [avgCheck, setAvgCheck] = useState(0);
-  const [guestsToday, setGuestsToday] = useState(0);
+  const [cashAmount, setCashAmount] = useState(0);
+  const [transferAmount, setTransferAmount] = useState(0);
   const [recentOrders, setRecentOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -20,22 +22,37 @@ export default function DashboardPage() {
   const fetchDashboardData = async () => {
     const today = new Date().toISOString().split('T')[0];
 
-    // Основные метрики за сегодня
+    // Получаем заказы за сегодня
     const { data: orders } = await supabase
       .from('orders')
-      .select('total, created_at, table_number')
+      .select('total, created_at, payment_method, table_number')
       .gte('created_at', today)
       .order('created_at', { ascending: false });
 
-    const revenue = orders?.reduce((sum: number, o: any) => sum + Number(o.total), 0) || 0;
-    const orderCount = orders?.length || 0;
+    if (!orders) {
+      setLoading(false);
+      return;
+    }
+
+    const revenue = orders.reduce((sum, o) => sum + Number(o.total), 0);
+    const orderCount = orders.length;
     const avg = orderCount > 0 ? Math.round(revenue / orderCount) : 0;
+
+    // Разделение по типу оплаты
+    const cash = orders
+      .filter(o => o.payment_method === 'cash')
+      .reduce((sum, o) => sum + Number(o.total), 0);
+
+    const transfer = orders
+      .filter(o => o.payment_method === 'transfer')
+      .reduce((sum, o) => sum + Number(o.total), 0);
 
     setTodayRevenue(revenue);
     setTodayOrders(orderCount);
     setAvgCheck(avg);
-    setGuestsToday(orderCount * 2); // приблизительно
-    setRecentOrders(orders?.slice(0, 5) || []);
+    setCashAmount(cash);
+    setTransferAmount(transfer);
+    setRecentOrders(orders.slice(0, 6));
     setLoading(false);
   };
 
@@ -95,10 +112,18 @@ export default function DashboardPage() {
         <div className="card p-8">
           <div className="flex justify-between items-start">
             <div>
-              <p className="text-[#C8A77E] text-sm">Посетителей</p>
-              <p className="text-6xl font-mono text-white mt-3">{guestsToday}</p>
+              <p className="text-[#C8A77E] text-sm mb-1">Оплата сегодня</p>
+              <div className="space-y-1">
+                <div className="flex justify-between text-sm">
+                  <span className="text-emerald-400">Наличка</span>
+                  <span className="font-mono text-white">{cashAmount} с</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-blue-400">Перевод</span>
+                  <span className="font-mono text-white">{transferAmount} с</span>
+                </div>
+              </div>
             </div>
-            <Users className="w-10 h-10 text-purple-400" />
           </div>
         </div>
       </div>
@@ -119,25 +144,39 @@ export default function DashboardPage() {
                 <th className="text-left p-6">Время</th>
                 <th className="text-left p-6">Стол</th>
                 <th className="text-left p-6">Сумма</th>
+                <th className="text-left p-6">Оплата</th>
               </tr>
             </thead>
             <tbody>
-              {recentOrders.map((order: any) => (
-                <tr key={order.id} className="border-b border-[#5C4030] hover:bg-[#3F2A1F]/70">
-                  <td className="p-6 text-gray-400">
-                    {new Date(order.created_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
-                  </td>
-                  <td className="p-6 font-medium text-white">{order.table_number}</td>
-                  <td className="p-6 font-mono text-[#C8A77E] text-xl">{order.total} с</td>
-                </tr>
-              ))}
               {recentOrders.length === 0 && (
                 <tr>
-                  <td colSpan={3} className="p-12 text-center text-gray-400">
-                    Пока нет заказов за сегодня
+                  <td colSpan={4} className="p-12 text-center text-gray-400">
+                    Сегодня заказов ещё нет
                   </td>
                 </tr>
               )}
+
+              {recentOrders.map((order: any) => (
+                <tr key={order.id} className="border-b border-[#5C4030] hover:bg-[#3F2A1F]/70">
+                  <td className="p-6 text-gray-400">
+                    {new Date(order.created_at).toLocaleTimeString('ru-RU', { 
+                      hour: '2-digit', 
+                      minute: '2-digit' 
+                    })}
+                  </td>
+                  <td className="p-6 font-medium text-white">{order.table_number}</td>
+                  <td className="p-6 font-mono text-[#C8A77E] text-xl">{order.total} с</td>
+                  <td className="p-6">
+                    <span className={`px-4 py-1.5 rounded-3xl text-sm font-medium ${
+                      order.payment_method === 'cash' 
+                        ? 'bg-emerald-600 text-white' 
+                        : 'bg-blue-600 text-white'
+                    }`}>
+                      {order.payment_method === 'cash' ? 'Наличка' : 'Перевод'}
+                    </span>
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>
