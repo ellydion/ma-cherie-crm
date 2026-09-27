@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { useEffect } from 'react';
 import { usePathname } from 'next/navigation';
 import Image from 'next/image';
 import { useProfileStore } from '@/lib/store/profileStore';
@@ -12,7 +13,8 @@ import {
   Users, 
   Truck, 
   BarChart3, 
-  Settings 
+  Settings,
+  LogOut 
 } from 'lucide-react';
 
 const navItems = [
@@ -29,7 +31,11 @@ const navItems = [
 
 export default function Sidebar() {
   const pathname = usePathname();
-  const { profile } = useProfileStore();
+  const { profile, fetchProfile, signOut } = useProfileStore();
+
+  useEffect(() => {
+    fetchProfile();
+  }, [fetchProfile]);
 
   return (
     <div className="w-72 h-screen bg-[#3F2A1F] border-r border-[#5C4030] flex flex-col shadow-2xl">
@@ -94,6 +100,12 @@ export default function Sidebar() {
             </p>
           </div>
         </div>
+        <button
+          onClick={() => signOut()}
+          className="mt-3 w-full flex items-center justify-center gap-2 py-3 rounded-3xl text-sm text-white/80 hover:bg-[#5C4030]"
+        >
+          <LogOut className="w-4 h-4" /> Выйти
+        </button>
       </div>
     </div>
   );

@@ -13,6 +13,7 @@ export default function DashboardPage() {
   const [cashAmount, setCashAmount] = useState(0);
   const [transferAmount, setTransferAmount] = useState(0);
   const [recentOrders, setRecentOrders] = useState<any[]>([]);
+  const [soldToday, setSoldToday] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -20,13 +21,13 @@ export default function DashboardPage() {
   }, []);
 
   const fetchDashboardData = async () => {
-    const today = new Date().toISOString().split('T')[0];
+    const now = new Date();
+    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
 
-    // Получаем заказы за сегодня
     const { data: orders } = await supabase
       .from('orders')
-      .select('total, created_at, payment_method, table_number')
-      .gte('created_at', today)
+      .select('id, total, created_at, payment_method, table_number')
+      .gte('created_at', startOfDay.toISOString())
       .order('created_at', { ascending: false });
 
     if (!orders) {
@@ -52,7 +53,26 @@ export default function DashboardPage() {
     setAvgCheck(avg);
     setCashAmount(cash);
     setTransferAmount(transfer);
-    setRecentOrders(orders.slice(0, 6));
+    setRecentOrders(orders.slice(0, 8));
+
+    const ids = orders.map((o: any) => o.id).filter(Boolean);
+    if (ids.length) {
+      const { data: items } = await supabase
+        .from('order_items')
+        .select('product_name, quantity, price')
+        .in('order_id', ids);
+      const map = new Map<string, { product_name: string; qty: number; revenue: number }>();
+      (items || []).forEach((row: any) => {
+        const cur = map.get(row.product_name) || { product_name: row.product_name, qty: 0, revenue: 0 };
+        cur.qty += Number(row.quantity);
+        cur.revenue += Number(row.quantity) * Number(row.price);
+        map.set(row.product_name, cur);
+      });
+      setSoldToday(Array.from(map.values()).sort((a, b) => b.qty - a.qty).slice(0, 12));
+    } else {
+      setSoldToday([]);
+    }
+
     setLoading(false);
   };
 
@@ -128,7 +148,32 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Последние заказы */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+      <div className="card overflow-hidden">
+        <h2 className="text-2xl font-semibold text-white p-6">Что продали сегодня</h2>
+        {soldToday.length === 0 ? (
+          <p className="p-8 text-gray-400">Пока нет продаж за сегодня</p>
+        ) : (
+          <table className="w-full">
+            <thead>
+              <tr className="border-t border-[#5C4030] text-left">
+                <th className="p-4">Позиция</th>
+                <th className="p-4">Кол-во</th>
+                <th className="p-4">Сумма</th>
+              </tr>
+            </thead>
+            <tbody>
+              {soldToday.map((row: any) => (
+                <tr key={row.product_name} className="border-t border-[#5C4030]">
+                  <td className="p-4 text-white">{row.product_name}</td>
+                  <td className="p-4 font-mono">{row.qty}</td>
+                  <td className="p-4 font-mono text-[#C8A77E]">{row.revenue} с</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
       <div>
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-2xl font-semibold text-white">Последние заказы</h2>
@@ -180,6 +225,7 @@ export default function DashboardPage() {
             </tbody>
           </table>
         </div>
+      </div>
       </div>
     </div>
   );

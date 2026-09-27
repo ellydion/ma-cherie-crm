@@ -16,6 +16,7 @@ interface ProfileStore {
   loading: boolean;
   fetchProfile: () => Promise<void>;
   updateProfile: (data: Partial<Profile>) => void;
+  signOut: () => Promise<void>;
 }
 
 export const useProfileStore = create<ProfileStore>()(
@@ -26,11 +27,17 @@ export const useProfileStore = create<ProfileStore>()(
 
       fetchProfile: async () => {
         set({ loading: true });
+        const { data: auth } = await supabase.auth.getUser();
+        if (!auth.user) {
+          set({ profile: null, loading: false });
+          return;
+        }
+
         const { data, error } = await supabase
           .from('profiles')
           .select('*')
-          .limit(1)
-          .single();
+          .eq('id', auth.user.id)
+          .maybeSingle();
 
         if (error && error.code !== 'PGRST116') {
           console.error('Ошибка загрузки профиля:', error);
@@ -38,12 +45,12 @@ export const useProfileStore = create<ProfileStore>()(
 
         set({
           profile: data || {
-            id: '',
-            name: 'Айбек Султанов',
-            position: 'Администратор',
-            phone: '+996 555 123 456',
-            email: 'aibek@macherie.coffee',
-            avatar: '👨‍🍳'
+            id: auth.user.id,
+            name: (auth.user.user_metadata?.name as string) || auth.user.email || 'Сотрудник',
+            position: (auth.user.user_metadata?.position as string) || 'Barista',
+            phone: '',
+            email: auth.user.email || '',
+            avatar: '👨‍🍳',
           },
           loading: false,
         });
@@ -53,6 +60,12 @@ export const useProfileStore = create<ProfileStore>()(
         set((state) => ({
           profile: state.profile ? { ...state.profile, ...data } : null,
         })),
+
+      signOut: async () => {
+        await supabase.auth.signOut();
+        set({ profile: null, loading: false });
+        window.location.href = '/login';
+      },
     }),
     { name: 'ma-cherie-profile' }
   )

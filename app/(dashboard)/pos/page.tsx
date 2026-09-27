@@ -41,7 +41,11 @@ export default function PosPage() {
   // Загрузка товаров
   useEffect(() => {
     const loadProducts = async () => {
-      const { data } = await supabase.from('products').select('*').order('name');
+      const { data } = await supabase
+        .from('products')
+        .select('*')
+        .or('is_ingredient.eq.false,is_ingredient.is.null')
+        .order('name');
       if (data) setProducts(data);
     };
     loadProducts();
