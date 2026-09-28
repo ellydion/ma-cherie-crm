@@ -13,12 +13,22 @@ const CATS = [
   { id: 'product', label: 'Готовые товары' },
 ];
 
+const ADMIN = 'admin@macherie.coffee';
+
 export default function InventoryPage() {
   const [rows, setRows] = useState<Row[]>([]);
   const [cat, setCat] = useState('all');
   const [search, setSearch] = useState('');
+  const [email, setEmail] = useState('');
+  const [editId, setEditId] = useState<string | null>(null);
+  const [editQty, setEditQty] = useState(0);
+  const [msg, setMsg] = useState('');
+
+  const isAdmin = email.toLowerCase() === ADMIN;
 
   const load = async () => {
+    const { data: auth } = await supabase.auth.getUser();
+    setEmail(auth.user?.email || '');
     const { data: view } = await supabase.from('warehouse_stock').select('*').order('name');
     if (view && view.length) { setRows(view as Row[]); return; }
     const { data: ings } = await supabase.from('ingredients').select('*').order('name');
@@ -38,10 +48,29 @@ export default function InventoryPage() {
     return { t: 'Ок', c: 'bg-emerald-600' };
   };
 
+  const saveQty = async (row: Row) => {
+    if (!isAdmin) {
+      setMsg('Менять остаток может только admin@macherie.coffee');
+      return;
+    }
+    const table = row.kind === 'product' ? 'products' : 'ingredients';
+    const { error } = await supabase.from(table).update({ quantity: editQty }).eq('id', row.id);
+    if (error) setMsg(error.message);
+    else {
+      setEditId(null);
+      setMsg('');
+      load();
+    }
+  };
+
   return (
     <div>
       <h1 className="text-4xl font-semibold">Склад</h1>
-      <p className="text-[#C8A77E] mb-6">Общее место остатков</p>
+      <p className="text-[#C8A77E] mb-2">Общее место остатков</p>
+      {isAdmin
+        ? <p className="text-emerald-400 text-sm mb-4">Админ: нажми на количество, чтобы изменить</p>
+        : <p className="text-gray-400 text-sm mb-4">Количество меняет только admin@macherie.coffee</p>}
+      {msg && <p className="text-amber-400 mb-3">{msg}</p>}
       <div className="flex gap-2 flex-wrap mb-4">
         {CATS.map((c) => (
           <button key={c.id} type="button" onClick={() => setCat(c.id)} className={`px-5 py-3 rounded-3xl ${cat === c.id ? 'bg-[#C8A77E] text-[#3F2A1F]' : 'bg-[#3F2A1F]'}`}>{c.label}</button>
@@ -59,7 +88,27 @@ export default function InventoryPage() {
                   <td className="p-5">{r.name}</td>
                   <td className="p-5 text-[#C8A77E]">{r.kind === 'product' ? 'Готовый товар' : 'Ингредиент'}</td>
                   <td className="p-5">{r.section === 'kitchen' ? 'Кухня' : 'Кофейня'}</td>
-                  <td className="p-5 font-mono">{r.quantity} {r.unit}</td>
+                  <td className="p-5">
+                    {isAdmin && editId === r.id ? (
+                      <span className="flex items-center gap-2">
+                        <input type="number" step="0.01" value={editQty} onChange={(e) => setEditQty(Number(e.target.value))} className="w-24 bg-[#2C241E] rounded-xl px-3 py-2" />
+                        <button type="button" onClick={() => saveQty(r)} className="text-emerald-400">OK</button>
+                        <button type="button" onClick={() => setEditId(null)} className="text-gray-400">×</button>
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        className={`font-mono ${isAdmin ? 'underline decoration-[#C8A77E]' : ''}`}
+                        onClick={() => {
+                          if (!isAdmin) { setMsg('Менять остаток может только admin@macherie.coffee'); return; }
+                          setEditId(r.id);
+                          setEditQty(Number(r.quantity));
+                        }}
+                      >
+                        {r.quantity} {r.unit}
+                      </button>
+                    )}
+                  </td>
                   <td className="p-5"><span className={`px-4 py-1 rounded-3xl text-sm ${s.c}`}>{s.t}</span></td>
                 </tr>
               );

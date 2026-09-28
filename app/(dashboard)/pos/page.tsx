@@ -14,6 +14,9 @@ export default function PosPage() {
   const [table, setTable] = useState('Стол 1');
   const [lines, setLines] = useState<Line[]>([]);
   const [loadError, setLoadError] = useState('');
+  const [customers, setCustomers] = useState<any[]>([]);
+  const [customerId, setCustomerId] = useState('');
+
 
   useEffect(() => {
     const load = async () => {
@@ -30,10 +33,17 @@ export default function PosPage() {
       setProducts(data || []);
     };
     load();
+    supabase.from('customers').select('id, name, loyalty_level, points, total_spent').order('name').then(({ data }) => setCustomers(data || []));
   }, []);
 
+
   const list = products.filter((p) => (cat === 'all' || p.category === cat) && p.name.toLowerCase().includes(search.toLowerCase()));
-  const total = lines.reduce((s, l) => s + l.price * l.quantity, 0);
+  const subtotal = lines.reduce((s, l) => s + l.price * l.quantity, 0);
+  const guest = customers.find((c) => c.id === customerId);
+  const discountPct = guest?.loyalty_level === 'Platinum' ? 15 : guest?.loyalty_level === 'Gold' ? 10 : guest?.loyalty_level === 'Silver' ? 5 : 0;
+  const discount = Math.round(subtotal * discountPct / 100);
+  const total = Math.max(0, subtotal - discount);
+
 
   const add = (p: Product) => {
     setLines((prev) => {
@@ -47,6 +57,7 @@ export default function PosPage() {
     if (!lines.length) return;
     const { data: order, error } = await supabase.from('orders').insert([{
       table_number: table, total, payment_method: method, status: 'completed',
+      comment: guest ? `${guest.name} ${guest.loyalty_level} -${discountPct}%` : null,
     }]).select().single();
     if (error || !order) {
       alert('Не удалось сохранить заказ');
@@ -70,8 +81,15 @@ export default function PosPage() {
         }
       }
     }
+    if (guest) {
+      await supabase.from('customers').update({
+        total_spent: Number(guest.total_spent || 0) + total,
+        points: Number(guest.points || 0) + Math.round(total / 10),
+      }).eq('id', guest.id);
+    }
     setLines([]);
   };
+
 
   return (
     <div className="h-full flex flex-col">
@@ -99,7 +117,14 @@ export default function PosPage() {
           ))}
         </div>
         <div className="w-96 card p-5 flex flex-col">
-          <h2 className="text-xl mb-4">{table}</h2>
+          <h2 className="text-xl mb-3">{table}</h2>
+          <select value={customerId} onChange={(e) => setCustomerId(e.target.value)} className="mb-3 bg-[#2C241E] border border-[#5C4030] rounded-2xl px-3 py-3">
+            <option value="">Без карты лояльности</option>
+            {customers.map((c) => (
+              <option key={c.id} value={c.id}>{c.name} · {c.loyalty_level}</option>
+            ))}
+          </select>
+
           <div className="flex-1 overflow-auto space-y-2">
             {lines.length === 0 && <p className="text-gray-400">Добавь товары</p>}
             {lines.map((l) => (
@@ -112,7 +137,12 @@ export default function PosPage() {
               </div>
             ))}
           </div>
-          <p className="text-3xl font-semibold my-4">Итого {total} с</p>
+          <div className="my-3 text-sm space-y-1">
+            <div className="flex justify-between"><span>Сумма</span><span className="font-mono">{subtotal} с</span></div>
+            {discountPct > 0 && <div className="flex justify-between text-[#C8A77E]"><span>Скидка {guest?.loyalty_level} {discountPct}%</span><span className="font-mono">-{discount} с</span></div>}
+          </div>
+          <p className="text-3xl font-semibold mb-4">Итого {total} с</p>
+
           <div className="grid grid-cols-2 gap-3">
             <button onClick={() => close('cash')} disabled={!lines.length} className="py-5 rounded-3xl bg-emerald-600 disabled:bg-gray-600">Наличка</button>
             <button onClick={() => close('transfer')} disabled={!lines.length} className="py-5 rounded-3xl bg-blue-600 disabled:bg-gray-600">Перевод</button>
