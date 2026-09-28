@@ -15,6 +15,11 @@ type OrderRow = {
   items: { name: string; qty: number; price: number }[];
 };
 
+function localDayKey(input: Date | string) {
+  const d = typeof input === 'string' ? new Date(input) : new Date(input);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 export default function ReportsPage() {
   const [days, setDays] = useState<Range>(1);
   const [points, setPoints] = useState<DayPoint[]>([]);
@@ -53,9 +58,8 @@ export default function ReportsPage() {
 
       const map = new Map<string, DayPoint>();
       for (let i = 0; i < days; i++) {
-        const d = new Date(from);
-        d.setDate(from.getDate() + i);
-        const key = d.toISOString().slice(0, 10);
+        const d = new Date(from.getFullYear(), from.getMonth(), from.getDate() + i);
+        const key = localDayKey(d);
         map.set(key, {
           key,
           label: `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}`,
@@ -77,7 +81,7 @@ export default function ReportsPage() {
 
       const byDay: Record<string, OrderRow[]> = {};
       list.forEach((o: any) => {
-        const key = new Date(o.created_at).toISOString().slice(0, 10);
+        const key = localDayKey(o.created_at);
         const row = map.get(key);
         if (row) {
           const t = Number(o.total);
@@ -98,10 +102,16 @@ export default function ReportsPage() {
       });
 
       const pts = Array.from(map.values());
+      const today = localDayKey(new Date());
+      const richest = [...pts].sort((a, b) => b.sales - a.sales)[0]?.key;
       setPoints(pts);
       setTop(Array.from(soldMap.values()).sort((a, b) => b.qty - a.qty).slice(0, 20));
       setOrdersByDay(byDay);
-      setSelected((prev) => prev && map.has(prev) ? prev : pts[pts.length - 1]?.key || null);
+      setSelected((prev) => {
+        if (prev && (byDay[prev]?.length || map.get(prev)?.sales)) return prev;
+        if (byDay[today]?.length) return today;
+        return richest || pts[pts.length - 1]?.key || null;
+      });
       setUpdated(new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
     };
 
@@ -150,22 +160,17 @@ export default function ReportsPage() {
       </div>
 
       {best && best.sales > 0 && (
-        <div className="card p-5 mb-6">
-          <p className="text-[#C8A77E] text-sm">Лучший день в периоде</p>
+        <button type="button" onClick={() => setSelected(best.key)} className="card p-5 mb-6 w-full text-left">
+          <p className="text-[#C8A77E] text-sm">Лучший день в периоде · нажми чтобы открыть историю</p>
           <p className="text-2xl font-semibold mt-1">{best.label} · {best.sales} с · {best.orders} заказов</p>
-        </div>
+        </button>
       )}
 
       <div className="card p-6 mb-8">
-        <p className="mb-4 text-[#C8A77E]">Выручка по дням · нажми столбик или дату</p>
+        <p className="mb-4 text-[#C8A77E]">Выручка по дням · нажми столбик</p>
         <div className="flex items-end gap-1 h-56">
           {points.map((p) => (
-            <button
-              key={p.key}
-              type="button"
-              onClick={() => setSelected(p.key)}
-              className="flex-1 flex flex-col items-center justify-end h-full"
-            >
+            <button key={p.key} type="button" onClick={() => setSelected(p.key)} className="flex-1 flex flex-col items-center justify-end h-full">
               <div
                 className={`w-full rounded-t-lg ${p.key === selected ? 'bg-white' : p.key === best?.key ? 'bg-emerald-500' : 'bg-[#C8A77E]'}`}
                 style={{ height: `${Math.round((p.sales / max) * 100)}%`, minHeight: p.sales ? 6 : 2 }}
@@ -215,6 +220,7 @@ export default function ReportsPage() {
                     </span>
                     <span className="font-mono text-[#C8A77E]">{o.total} с</span>
                   </div>
+                  {o.items.length === 0 && <p className="text-sm text-gray-500">Состав чека не записан</p>}
                   {o.items.map((it, idx) => (
                     <p key={idx} className="text-sm">{it.qty}× {it.name}</p>
                   ))}
