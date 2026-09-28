@@ -13,11 +13,23 @@ export default function PosPage() {
   const [search, setSearch] = useState('');
   const [table, setTable] = useState('Стол 1');
   const [lines, setLines] = useState<Line[]>([]);
+  const [loadError, setLoadError] = useState('');
 
   useEffect(() => {
-    supabase.from('products').select('*').order('name').then(({ data }) => {
-      setProducts((data || []).filter((p: any) => p.is_ingredient !== true));
-    });
+    const load = async () => {
+      const { data, error } = await supabase
+        .from('products')
+        .select('id, name, price, category')
+        .order('name');
+      if (error) {
+        setLoadError(error.message);
+        setProducts([]);
+        return;
+      }
+      setLoadError('');
+      setProducts(data || []);
+    };
+    load();
   }, []);
 
   const list = products.filter((p) => (cat === 'all' || p.category === cat) && p.name.toLowerCase().includes(search.toLowerCase()));
@@ -63,6 +75,8 @@ export default function PosPage() {
 
   return (
     <div className="h-full flex flex-col">
+      {loadError && <p className="text-red-400 mb-3">Ошибка меню: {loadError}</p>}
+      {!loadError && products.length === 0 && <p className="text-amber-400 mb-3">В таблице products пока 0 строк. Запусти SQL добавления товаров.</p>}
       <div className="flex justify-between mb-4">
         <h1 className="text-4xl font-semibold">Касса</h1>
         <input value={table} onChange={(e) => setTable(e.target.value)} className="bg-[#3F2A1F] border border-[#5C4030] rounded-3xl px-5 py-3 w-40" />
