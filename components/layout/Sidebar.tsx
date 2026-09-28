@@ -8,12 +8,13 @@ import { useProfileStore } from '@/lib/store/profileStore';
 import { useUiStore } from '@/lib/store/uiStore';
 import {
   LayoutDashboard, Receipt, Coffee, Leaf, Package, BookOpen,
-  Users, Truck, BarChart3, Settings, LogOut, X,
+  Users, Truck, BarChart3, Settings, LogOut, X, Clock,
 } from 'lucide-react';
 
 const navItems = [
   { name: 'Дашборд', href: '/', icon: LayoutDashboard },
   { name: 'Касса', href: '/pos', icon: Receipt },
+  { name: 'Смены', href: '/shifts', icon: Clock },
   { name: 'Товары', href: '/products', icon: Coffee },
   { name: 'Ингредиенты', href: '/ingredients', icon: Leaf },
   { name: 'Склад', href: '/inventory', icon: Package },

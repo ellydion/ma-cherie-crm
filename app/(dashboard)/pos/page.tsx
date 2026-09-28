@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Plus, Minus, Trash2 } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
+import { useShiftStore } from '@/lib/store/shiftStore';
 
 type Product = { id: string; name: string; price: number; category: string };
 type Line = Product & { quantity: number };
@@ -14,6 +15,8 @@ export default function PosPage() {
   const [table, setTable] = useState('Стол 1');
   const [lines, setLines] = useState<Line[]>([]);
   const [loadError, setLoadError] = useState('');
+  const currentShift = useShiftStore((s) => s.current);
+  const refreshShift = useShiftStore((s) => s.refresh);
   const [customers, setCustomers] = useState<any[]>([]);
   const [customerId, setCustomerId] = useState('');
 
@@ -33,6 +36,7 @@ export default function PosPage() {
       setProducts(data || []);
     };
     load();
+    refreshShift();
     supabase.from('customers').select('id, name, loyalty_level, points, total_spent').order('name').then(({ data }) => setCustomers(data || []));
   }, []);
 
@@ -55,10 +59,20 @@ export default function PosPage() {
 
   const close = async (method: 'cash' | 'transfer') => {
     if (!lines.length) return;
-    const { data: order, error } = await supabase.from('orders').insert([{
+    const payload: any = {
       table_number: table, total, payment_method: method, status: 'completed',
       comment: guest ? `${guest.name} ${guest.loyalty_level} -${discountPct}%` : null,
-    }]).select().single();
+    };
+    if (currentShift?.id) payload.shift_id = currentShift.id;
+    const { data: auth } = await supabase.auth.getUser();
+    if (auth.user?.id) payload.cashier_id = auth.user.id;
+    let { data: order, error } = await supabase.from('orders').insert([payload]).select().single();
+    if (error && payload.shift_id) {
+      delete payload.shift_id;
+      const retry = await supabase.from('orders').insert([payload]).select().single();
+      order = retry.data;
+      error = retry.error;
+    }
     if (error || !order) {
       alert('Не удалось сохранить заказ');
       return;
