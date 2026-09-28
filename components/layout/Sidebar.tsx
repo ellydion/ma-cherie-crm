@@ -5,27 +5,21 @@ import { useEffect } from 'react';
 import { usePathname } from 'next/navigation';
 import Image from 'next/image';
 import { useProfileStore } from '@/lib/store/profileStore';
-import { 
-  LayoutDashboard, 
-  Coffee, 
-  Receipt, 
-  Package, 
-  Users, 
-  Truck, 
-  BarChart3, 
-  Settings,
-  LogOut 
+import {
+  LayoutDashboard, Receipt, Coffee, Leaf, Package, BookOpen,
+  Users, Truck, BarChart3, Settings, LogOut,
 } from 'lucide-react';
 
 const navItems = [
   { name: 'Дашборд', href: '/', icon: LayoutDashboard },
-  { name: 'Касса (POS)', href: '/pos', icon: Receipt },
-  { name: 'Склад', href: '/inventory', icon: Package },
+  { name: 'Касса', href: '/pos', icon: Receipt },
   { name: 'Товары', href: '/products', icon: Coffee },
+  { name: 'Ингредиенты', href: '/ingredients', icon: Leaf },
+  { name: 'Склад', href: '/inventory', icon: Package },
+  { name: 'Техкарты', href: '/techcards', icon: BookOpen },
   { name: 'Клиенты', href: '/customers', icon: Users },
   { name: 'Поставщики', href: '/suppliers', icon: Truck },
   { name: 'Отчёты', href: '/reports', icon: BarChart3 },
-  { name: 'Техкарты', href: '/techcards', icon: Coffee },
   { name: 'Настройки', href: '/settings', icon: Settings },
 ];
 
@@ -38,72 +32,47 @@ export default function Sidebar() {
   }, [fetchProfile]);
 
   return (
-    <div className="w-72 h-screen bg-[#3F2A1F] border-r border-[#5C4030] flex flex-col shadow-2xl">
-      
-      {/* === Логотип с next/image === */}
+    <div className="w-72 h-screen bg-[#3F2A1F] border-r border-[#5C4030] flex flex-col">
       <div className="p-6 border-b border-[#5C4030]">
-        <Link href="/" className="flex items-center gap-4 group">
-          <div className="relative w-14 h-14 flex-shrink-0">
-            <Image
-              src="/ma-cherie-logo.jpg"
-              alt="Ma Cherie Logo"
-              width={56}
-              height={56}
-              className="object-contain"
-              priority
-            />
-          </div>
+        <Link href="/" className="flex items-center gap-4">
+          <Image src="/ma-cherie-logo.jpg" alt="Ma Cherie" width={56} height={56} className="object-contain rounded-2xl" />
           <div>
-            <h1 className="text-3xl font-semibold tracking-tighter text-white group-hover:text-[#C8A77E] transition-colors">
-              Ma Cherie
-            </h1>
-            <p className="text-sm text-[#C8A77E] tracking-widest -mt-1">
-              COFFEE & MORE
-            </p>
+            <h1 className="text-2xl font-semibold text-white">Ma Cherie</h1>
+            <p className="text-xs text-[#C8A77E] tracking-widest">COFFEE & MORE</p>
           </div>
         </Link>
       </div>
 
-      {/* Навигация */}
-      <nav className="flex-1 px-4 py-8 space-y-1 overflow-y-auto">
+      <nav className="flex-1 px-4 py-6 space-y-1 overflow-y-auto">
         {navItems.map((item) => {
-          const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
+          const active = pathname === item.href;
+          const Icon = item.icon;
           return (
             <Link
               key={item.href}
               href={item.href}
-              className={`flex items-center gap-4 px-6 py-4 rounded-3xl font-medium transition-all group ${
-                isActive 
-                  ? "bg-[#C8A77E] text-[#3F2A1F] shadow-inner" 
-                  : "text-white hover:bg-[#5C4030] hover:text-white"
+              className={`flex items-center gap-4 px-5 py-3 rounded-3xl font-medium ${
+                active ? 'bg-[#C8A77E] text-[#3F2A1F]' : 'text-white hover:bg-[#5C4030]'
               }`}
             >
-              <item.icon className="w-5 h-5 transition-transform group-hover:scale-110" />
-              <span>{item.name}</span>
+              <Icon className="w-5 h-5" />
+              {item.name}
             </Link>
           );
         })}
       </nav>
 
-      {/* Профиль сотрудника */}
       <div className="p-6 border-t border-[#5C4030]">
         <div className="flex items-center gap-4 bg-[#2C241E] rounded-3xl p-4">
-          <div className="w-12 h-12 bg-[#C8A77E] rounded-2xl flex items-center justify-center text-4xl flex-shrink-0 shadow-inner">
+          <div className="w-12 h-12 bg-[#C8A77E] rounded-2xl flex items-center justify-center text-3xl">
             {profile?.avatar || '👨‍🍳'}
           </div>
-          <div className="flex-1 min-w-0">
-            <p className="font-semibold text-white text-[15px] truncate">
-              {profile?.name || 'Айбек Султанов'}
-            </p>
-            <p className="text-xs text-[#C8A77E] truncate">
-              {profile?.position || 'Администратор'}
-            </p>
+          <div className="min-w-0">
+            <p className="font-semibold text-white truncate">{profile?.name || 'Сотрудник'}</p>
+            <p className="text-xs text-[#C8A77E] truncate">{profile?.position || 'Смена'}</p>
           </div>
         </div>
-        <button
-          onClick={() => signOut()}
-          className="mt-3 w-full flex items-center justify-center gap-2 py-3 rounded-3xl text-sm text-white/80 hover:bg-[#5C4030]"
-        >
+        <button onClick={() => signOut()} className="mt-3 w-full flex items-center justify-center gap-2 py-3 rounded-3xl text-sm hover:bg-[#5C4030]">
           <LogOut className="w-4 h-4" /> Выйти
         </button>
       </div>
