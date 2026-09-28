@@ -82,9 +82,9 @@ export default function PosPage() {
         <input value={table} onChange={(e) => setTable(e.target.value)} className="bg-[#3F2A1F] border border-[#5C4030] rounded-3xl px-5 py-3 w-40" />
       </div>
       <div className="flex gap-2 mb-4 flex-wrap">
-        {['all', 'coffee', 'kitchen', 'drinks', 'desserts'].map((c) => (
-          <button key={c} onClick={() => setCat(c)} className={`px-5 py-3 rounded-3xl ${cat === c ? 'bg-[#C8A77E] text-[#3F2A1F]' : 'bg-[#3F2A1F]'}`}>
-            {c === 'all' ? 'Все' : c}
+        {[['all','Все'],['coffee','Кофе'],['nitro','Нитро'],['asu','Асу'],['kitchen','Кухня'],['drinks','Напитки'],['desserts','Десерты']].map(([id,label]) => (
+          <button key={id} type="button" onClick={() => setCat(id)} className={`px-5 py-3 rounded-3xl ${cat === id ? 'bg-[#C8A77E] text-[#3F2A1F]' : 'bg-[#3F2A1F]'}`}>
+            {label}
           </button>
         ))}
       </div>
