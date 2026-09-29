@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Plus } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
+import { downloadXlsx } from '@/lib/excel';
 
 type Ing = { id: string; name: string; unit: string; quantity: number; min_threshold: number; section: string };
 
@@ -36,7 +37,12 @@ export default function IngredientsPage() {
           <h1 className="text-4xl font-semibold">Ингредиенты</h1>
           <p className="text-[#C8A77E]">Из этого собираются товары по техкарте</p>
         </div>
-        <button onClick={() => setOpen(true)} className="btn-primary px-8 py-4 flex items-center gap-2"><Plus /> Добавить</button>
+        <div className="flex gap-3">
+          <button type="button" onClick={() => downloadXlsx('ingredienty.xlsx', items.map((x) => ({
+            'название': x.name, 'единица': x.unit, 'остаток': x.quantity, 'минимум': x.min_threshold, 'секция': x.section,
+          })))} className="px-6 py-4 rounded-3xl border border-[#5C4030]">Excel</button>
+          <button onClick={() => setOpen(true)} className="btn-primary px-8 py-4 flex items-center gap-2"><Plus /> Добавить</button>
+        </div>
       </div>
       <div className="card overflow-hidden">
         <table className="w-full">
