@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase/client';
+import { downloadXlsx } from '@/lib/excel';
 
 type Row = { id: string; name: string; unit: string; quantity: number; min_threshold: number; section: string; kind?: string };
 
@@ -23,7 +24,6 @@ export default function InventoryPage() {
   const [editId, setEditId] = useState<string | null>(null);
   const [editQty, setEditQty] = useState(0);
   const [msg, setMsg] = useState('');
-
   const isAdmin = email.toLowerCase() === ADMIN;
 
   const load = async () => {
@@ -49,27 +49,26 @@ export default function InventoryPage() {
   };
 
   const saveQty = async (row: Row) => {
-    if (!isAdmin) {
-      setMsg('Менять остаток может только admin@macherie.coffee');
-      return;
-    }
+    if (!isAdmin) { setMsg('Менять остаток может только admin@macherie.coffee'); return; }
     const table = row.kind === 'product' ? 'products' : 'ingredients';
     const { error } = await supabase.from(table).update({ quantity: editQty }).eq('id', row.id);
     if (error) setMsg(error.message);
-    else {
-      setEditId(null);
-      setMsg('');
-      load();
-    }
+    else { setEditId(null); setMsg(''); load(); }
   };
 
   return (
     <div>
-      <h1 className="text-4xl font-semibold">Склад</h1>
-      <p className="text-[#C8A77E] mb-2">Общее место остатков</p>
-      {isAdmin
-        ? <p className="text-emerald-400 text-sm mb-4">Админ: нажми на количество, чтобы изменить</p>
-        : <p className="text-gray-400 text-sm mb-4">Количество меняет только admin@macherie.coffee</p>}
+      <div className="flex flex-wrap justify-between gap-4 mb-2">
+        <div>
+          <h1 className="text-4xl font-semibold">Склад</h1>
+          <p className="text-[#C8A77E]">Общее место остатков</p>
+        </div>
+        <button type="button" onClick={() => downloadXlsx('sklad-inventar.xlsx', filtered.map((r) => ({
+          позиция: r.name, тип: r.kind === 'product' ? 'готовый товар' : 'ингредиент', секция: r.section,
+          остаток: r.quantity, единица: r.unit, минимум: r.min_threshold, статус: status(Number(r.quantity), Number(r.min_threshold)).t,
+        })))} className="px-6 py-4 rounded-3xl border border-[#5C4030]">Excel инвентаризация</button>
+      </div>
+      {isAdmin ? <p className="text-emerald-400 text-sm mb-4">Админ: нажми на количество</p> : <p className="text-gray-400 text-sm mb-4">Остаток меняет admin@macherie.coffee</p>}
       {msg && <p className="text-amber-400 mb-3">{msg}</p>}
       <div className="flex gap-2 flex-wrap mb-4">
         {CATS.map((c) => (
@@ -93,20 +92,9 @@ export default function InventoryPage() {
                       <span className="flex items-center gap-2">
                         <input type="number" step="0.01" value={editQty} onChange={(e) => setEditQty(Number(e.target.value))} className="w-24 bg-[#2C241E] rounded-xl px-3 py-2" />
                         <button type="button" onClick={() => saveQty(r)} className="text-emerald-400">OK</button>
-                        <button type="button" onClick={() => setEditId(null)} className="text-gray-400">×</button>
                       </span>
                     ) : (
-                      <button
-                        type="button"
-                        className={`font-mono ${isAdmin ? 'underline decoration-[#C8A77E]' : ''}`}
-                        onClick={() => {
-                          if (!isAdmin) { setMsg('Менять остаток может только admin@macherie.coffee'); return; }
-                          setEditId(r.id);
-                          setEditQty(Number(r.quantity));
-                        }}
-                      >
-                        {r.quantity} {r.unit}
-                      </button>
+                      <button type="button" className={`font-mono ${isAdmin ? 'underline decoration-[#C8A77E]' : ''}`} onClick={() => { if (!isAdmin) { setMsg('Только admin@macherie.coffee'); return; } setEditId(r.id); setEditQty(Number(r.quantity)); }}>{r.quantity} {r.unit}</button>
                     )}
                   </td>
                   <td className="p-5"><span className={`px-4 py-1 rounded-3xl text-sm ${s.c}`}>{s.t}</span></td>
