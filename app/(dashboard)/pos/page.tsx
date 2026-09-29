@@ -22,8 +22,15 @@ export default function PosPage() {
 
   useEffect(() => {
     const load = async () => {
-      const { data, error } = await supabase.from('products').select('id, name, price, category, track_stock').order('name');
-      if (error) { setLoadError(error.message); setProducts([]); return; }
+      const { data, error } = await supabase
+        .from('products')
+        .select('id, name, price, category, track_stock')
+        .order('name');
+      if (error) {
+        setLoadError(error.message);
+        setProducts([]);
+        return;
+      }
       setLoadError('');
       setProducts(data || []);
     };
@@ -48,22 +55,46 @@ export default function PosPage() {
   };
 
   const writeOff = async (line: Line) => {
-    const { data: recipe } = await supabase.from('product_ingredients').select('ingredient_id, quantity').eq('product_id', line.id);
+    const { data: recipe } = await supabase
+      .from('product_ingredients')
+      .select('ingredient_id, quantity')
+      .eq('product_id', line.id);
     if (recipe && recipe.length) {
       for (const r of recipe) {
-        await supabase.rpc('decrement_ingredient_quantity', { ingredient_id: r.ingredient_id, qty: Number(r.quantity) * line.quantity });
+        const qty = Number(r.quantity) * line.quantity;
+        const { error } = await supabase.rpc('decrement_ingredient_quantity', {
+          ingredient_id: r.ingredient_id,
+          qty,
+        });
+        if (error) {
+          const { data: ing } = await supabase
+            .from('ingredients')
+            .select('quantity')
+            .eq('id', r.ingredient_id)
+            .maybeSingle();
+          if (ing) {
+            await supabase.from('ingredients').update({
+              quantity: Math.max(0, Number(ing.quantity) - qty),
+            }).eq('id', r.ingredient_id);
+          }
+        }
       }
       return;
     }
     const { data: product } = await supabase.from('products').select('quantity, track_stock').eq('id', line.id).maybeSingle();
     if (product?.track_stock) {
-      await supabase.from('products').update({ quantity: Math.max(0, Number(product.quantity) - line.quantity) }).eq('id', line.id);
+      await supabase.from('products').update({
+        quantity: Math.max(0, Number(product.quantity) - line.quantity),
+      }).eq('id', line.id);
     }
   };
 
   const close = async (method: 'cash' | 'transfer') => {
     if (!lines.length) return;
-    const payload: any = { table_number: table, total, payment_method: method, status: 'completed', comment: guest ? `${guest.name} ${guest.loyalty_level} -${discountPct}%` : null };
+    const payload: any = {
+      table_number: table, total, payment_method: method, status: 'completed',
+      comment: guest ? `${guest.name} ${guest.loyalty_level} -${discountPct}%` : null,
+    };
     if (currentShift?.id) payload.shift_id = currentShift.id;
     const { data: auth } = await supabase.auth.getUser();
     if (auth.user?.id) payload.cashier_id = auth.user.id;
@@ -71,13 +102,22 @@ export default function PosPage() {
     if (error && payload.shift_id) {
       delete payload.shift_id;
       const retry = await supabase.from('orders').insert([payload]).select().single();
-      order = retry.data; error = retry.error;
+      order = retry.data;
+      error = retry.error;
     }
-    if (error || !order) { alert('Не удалось сохранить заказ'); return; }
-    await supabase.from('order_items').insert(lines.map((l) => ({ order_id: order.id, product_id: l.id, product_name: l.name, quantity: l.quantity, price: l.price })));
+    if (error || !order) {
+      alert('Не удалось сохранить заказ');
+      return;
+    }
+    await supabase.from('order_items').insert(lines.map((l) => ({
+      order_id: order.id, product_id: l.id, product_name: l.name, quantity: l.quantity, price: l.price,
+    })));
     for (const line of lines) await writeOff(line);
     if (guest) {
-      await supabase.from('customers').update({ total_spent: Number(guest.total_spent || 0) + total, points: Number(guest.points || 0) + Math.round(total / 10) }).eq('id', guest.id);
+      await supabase.from('customers').update({
+        total_spent: Number(guest.total_spent || 0) + total,
+        points: Number(guest.points || 0) + Math.round(total / 10),
+      }).eq('id', guest.id);
     }
     setLines([]);
   };
@@ -91,7 +131,9 @@ export default function PosPage() {
       </div>
       <div className="flex gap-2 mb-4 flex-wrap">
         {[['all','Все'],['coffee','Кофе'],['nitro','Нитро'],['asu','Асу'],['kitchen','Кухня'],['drinks','Напитки'],['desserts','Десерты']].map(([id,label]) => (
-          <button key={id} type="button" onClick={() => setCat(id)} className={`px-5 py-3 rounded-3xl ${cat === id ? 'bg-[#C8A77E] text-[#3F2A1F]' : 'bg-[#3F2A1F]'}`}>{label}</button>
+          <button key={id} type="button" onClick={() => setCat(id)} className={`px-5 py-3 rounded-3xl ${cat === id ? 'bg-[#C8A77E] text-[#3F2A1F]' : 'bg-[#3F2A1F]'}`}>
+            {label}
+          </button>
         ))}
       </div>
       <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Поиск товара" className="bg-[#3F2A1F] border border-[#5C4030] rounded-3xl px-6 py-4 mb-4" />
@@ -108,7 +150,9 @@ export default function PosPage() {
           <h2 className="text-xl mb-3">{table}</h2>
           <select value={customerId} onChange={(e) => setCustomerId(e.target.value)} className="mb-3 bg-[#2C241E] border border-[#5C4030] rounded-2xl px-3 py-3">
             <option value="">Без карты лояльности</option>
-            {customers.map((c) => (<option key={c.id} value={c.id}>{c.name} · {c.loyalty_level}</option>))}
+            {customers.map((c) => (
+              <option key={c.id} value={c.id}>{c.name} · {c.loyalty_level}</option>
+            ))}
           </select>
           <div className="flex-1 overflow-auto space-y-2">
             {lines.length === 0 && <p className="text-gray-400">Добавь товары</p>}
