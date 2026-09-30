@@ -1,17 +1,12 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { EyeOff, Trash2 } from 'lucide-react';
+import { Trash2 } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
 
 type Product = {
-  id: string;
-  name: string;
-  category?: string;
-  section?: string;
-  track_stock?: boolean;
-  is_active?: boolean;
-  hidden_from_techcards?: boolean;
+  id: string; name: string; category?: string; section?: string;
+  track_stock?: boolean; is_active?: boolean; hidden_from_techcards?: boolean;
 };
 type Ing = { id: string; name: string; unit: string };
 type Line = { id?: string; ingredient_id: string; name: string; quantity: number; unit: string };
@@ -27,26 +22,16 @@ const ZONES: { id: Zone | 'all'; label: string }[] = [
 function zoneOf(p: Product): Zone {
   const cat = (p.category || '').toLowerCase();
   const name = p.name.toLowerCase();
+  if (name.includes('айс') || name.includes('лимонад') || name.includes('мохито') || name.includes('бамбл')) return 'coffee';
   if (cat === 'kitchen' || cat === 'desserts') return 'kitchen';
   const bottled =
-    p.track_stock === true ||
-    cat === 'drinks' ||
-    name.includes("a'su") ||
-    name.includes('asu still') ||
-    name.includes('asu carbon') ||
-    name.includes('asu vo') ||
-    name.includes('coca') ||
-    name.includes('fanta') ||
-    name.includes('sprite') ||
-    name.includes('bonaqua') ||
-    name.includes('piala') ||
-    name.includes('живая сила') ||
-    name.includes('квас') ||
-    name.includes('piko') ||
-    name.includes('schweppes') ||
-    name.includes('fuse tea') ||
-    /nitro .+\d/.test(name);
-  if (bottled || cat === 'asu' || cat === 'drinks') return 'general';
+    name.includes("a'su") || name.includes('asu still') || name.includes('asu carbon') || name.includes('asu vo') ||
+    name.includes('coca') || name.includes('fanta') || name.includes('sprite') || name.includes('bonaqua') ||
+    name.includes('piala') || name.includes('живая сила') || name.includes('квас') ||
+    name.includes('piko') || name.includes('schweppes') || name.includes('fuse tea') ||
+    /nitro .+\d/.test(name) ||
+    (p.track_stock === true && (cat === 'drinks' || cat === 'asu' || cat === 'nitro'));
+  if (bottled || cat === 'drinks') return 'general';
   return 'coffee';
 }
 
@@ -79,65 +64,47 @@ export default function TechcardsPage() {
   const loadRecipe = async (productId: string) => {
     setCurrent(productId);
     setEditId(null);
-    const { data } = await supabase
-      .from('product_ingredients')
-      .select('id, ingredient_id, quantity, unit, ingredients(name)')
-      .eq('product_id', productId);
-    setLines((data || []).map((r: any) => ({
-      id: r.id,
-      ingredient_id: r.ingredient_id,
-      name: r.ingredients?.name || '',
-      quantity: Number(r.quantity),
-      unit: r.unit,
-    })));
+    const { data } = await supabase.from('product_ingredients').select('id, ingredient_id, quantity, unit, ingredients(name)').eq('product_id', productId);
+    setLines((data || []).map((r: any) => ({ id: r.id, ingredient_id: r.ingredient_id, name: r.ingredients?.name || '', quantity: Number(r.quantity), unit: r.unit })));
   };
 
   useEffect(() => { loadMeta(); }, []);
 
-  const visibleProducts = useMemo(() => {
-    return products.filter((p) => {
-      const hidden = p.hidden_from_techcards === true || p.is_active === false;
-      if (showHidden ? !hidden : hidden) return false;
-      if (zone === 'all') return true;
-      return zoneOf(p) === zone;
-    });
-  }, [products, zone, showHidden]);
+  const visibleProducts = useMemo(() => products.filter((p) => {
+    const hidden = p.hidden_from_techcards === true || p.is_active === false;
+    if (showHidden ? !hidden : hidden) return false;
+    if (zone === 'all') return true;
+    return zoneOf(p) === zone;
+  }), [products, zone, showHidden]);
 
   const currentProduct = products.find((p) => p.id === current);
 
   const addLine = async () => {
     if (!current || !pick) return;
     const ing = ings.find((i) => i.id === pick);
-    const { error: insErr } = await supabase.from('product_ingredients').insert([
-      { product_id: current, ingredient_id: pick, quantity: qty, unit: ing?.unit || 'шт' },
-    ]);
+    const { error: insErr } = await supabase.from('product_ingredients').insert([{ product_id: current, ingredient_id: pick, quantity: qty, unit: ing?.unit || 'шт' }]);
     if (insErr) setError(insErr.message);
     loadRecipe(current);
   };
-
   const saveQty = async (id?: string) => {
     if (!id) return;
     await supabase.from('product_ingredients').update({ quantity: editQty }).eq('id', id);
-    setEditId(null);
-    loadRecipe(current);
+    setEditId(null); loadRecipe(current);
   };
-
   const removeLine = async (id?: string) => {
     if (!id) return;
     await supabase.from('product_ingredients').delete().eq('id', id);
     loadRecipe(current);
   };
-
   const hideProduct = async (id: string) => {
     const { error: hideErr } = await supabase.from('products').update({ hidden_from_techcards: true }).eq('id', id);
     if (hideErr) {
-      setError('SQl: ALTER TABLE products ADD COLUMN IF NOT EXISTS hidden_from_techcards BOOLEAN NOT NULL DEFAULT false;');
+      setError('ALTER TABLE products ADD COLUMN IF NOT EXISTS hidden_from_techcards BOOLEAN NOT NULL DEFAULT false;');
       return;
     }
     if (current === id) { setCurrent(''); setLines([]); }
     await loadMeta();
   };
-
   const restoreProduct = async (id: string) => {
     await supabase.from('products').update({ hidden_from_techcards: false }).eq('id', id);
     await loadMeta();
@@ -148,11 +115,10 @@ export default function TechcardsPage() {
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-6">
         <div>
           <h1 className="text-3xl md:text-4xl font-semibold text-white">Техкарты</h1>
-          <p className="text-[#C8A77E] mt-1">Кофейня, кухня и общее. Скрытие убирает товар только из этого списка, не из базы.</p>
+          <p className="text-[#C8A77E] mt-1">Убрать — только из этого списка. Касса и база не трогаются.</p>
         </div>
         <label className="flex items-center gap-2 text-sm text-[#C8A77E]">
-          <input type="checkbox" checked={showHidden} onChange={(e) => setShowHidden(e.target.checked)} />
-          Показать скрытые
+          <input type="checkbox" checked={showHidden} onChange={(e) => setShowHidden(e.target.checked)} /> Показать убранные
         </label>
       </div>
       {error && <div className="mb-4 rounded-2xl bg-red-900/40 border border-red-700 text-red-100 px-4 py-3 text-sm">{error}</div>}
@@ -174,15 +140,15 @@ export default function TechcardsPage() {
                 <span className="block">{p.name}</span>
                 <span className={`text-xs ${current === p.id ? 'text-[#3F2A1F]/70' : 'text-[#C8A77E]'}`}>
                   {zoneOf(p) === 'kitchen' ? 'Кухня' : zoneOf(p) === 'general' ? 'Общее' : 'Кофейня'}
-                  {p.hidden_from_techcards || p.is_active === false ? ' · скрыт' : ''}
+                  {p.hidden_from_techcards ? ' · убран' : ''}
                 </span>
               </button>
               {p.hidden_from_techcards || p.is_active === false ? (
-                <button type="button" onClick={() => restoreProduct(p.id)} className="text-xs px-2 py-1 rounded-xl border border-[#5C4030]">Вернуть</button>
+                <button type="button" onClick={() => restoreProduct(p.id)} className="text-xs px-2 py-1 rounded-xl border border-[#5C4030] whitespace-nowrap">Вернуть</button>
               ) : (
-                <button type="button" title="Скрыть из техкарт" onClick={() => hideProduct(p.id)} className={`p-2 ${current === p.id ? 'text-[#3F2A1F]' : 'text-gray-400'}`}>
-                  <EyeOff className="w-4 h-4" />
-                </button>
+                <button type="button" onClick={() => hideProduct(p.id)} className={`text-xs px-2 py-1 rounded-xl whitespace-nowrap ${
+                  current === p.id ? 'text-[#3F2A1F] border border-[#3F2A1F]/30' : 'text-red-300 border border-[#5C4030]'
+                }`}>Убрать</button>
               )}
             </div>
           ))}
@@ -192,9 +158,9 @@ export default function TechcardsPage() {
           {current && (
             <>
               <h2 className="text-2xl text-white mb-1">{currentProduct?.name}</h2>
-              <p className="text-sm text-[#C8A77E] mb-5">Рецепт. Удаление строки не трогает ингредиент на складе.</p>
+              <p className="text-sm text-[#C8A77E] mb-5">Строку рецепта можно снять — ингредиент на складе останется.</p>
               <div className="space-y-2 mb-6">
-                {lines.length === 0 && <p className="text-gray-400">Рецепта ещё нет — это нормально для бутылок</p>}
+                {lines.length === 0 && <p className="text-gray-400">Рецепта ещё нет</p>}
                 {lines.map((l) => (
                   <div key={l.id || l.ingredient_id} className="flex items-center gap-3 bg-[#2C241E] rounded-2xl px-4 py-3">
                     <span className="flex-1 text-white">{l.name}</span>
