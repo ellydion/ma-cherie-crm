@@ -77,45 +77,45 @@ export default function ProductsPage() {
 
   return (
     <div>
-      <div className="flex justify-between items-center mb-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
         <div>
-          <h1 className="text-4xl font-semibold">Товары</h1>
-          <p className="text-[#C8A77E]">Только то, что продаётся на кассе</p>
+          <h1 className="text-2xl sm:text-3xl lg:text-4xl font-semibold">Товары</h1>
+          <p className="text-[#C8A77E] text-sm sm:text-base">Только то, что продаётся на кассе</p>
         </div>
-        <button type="button" onClick={openNew} className="btn-primary px-8 py-4 flex items-center gap-2">
-          <Plus /> Добавить товар
+        <button type="button" onClick={openNew} className="btn-primary px-5 py-3 flex items-center justify-center gap-2 w-full sm:w-auto">
+          <Plus className="w-5 h-5" /> Добавить товар
         </button>
       </div>
       <div className="flex gap-2 flex-wrap mb-4">
         {CATS.map((c) => (
-          <button key={c.id} type="button" onClick={() => setCat(c.id)} className={`px-5 py-3 rounded-3xl ${cat === c.id ? 'bg-[#C8A77E] text-[#3F2A1F]' : 'bg-[#3F2A1F]'}`}>
+          <button key={c.id} type="button" onClick={() => setCat(c.id)} className={`px-4 py-2 rounded-2xl text-sm ${cat === c.id ? 'bg-[#C8A77E] text-[#3F2A1F]' : 'bg-[#3F2A1F]'}`}>
             {c.label}
           </button>
         ))}
       </div>
-      <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Поиск" className="w-full bg-[#3F2A1F] border border-[#5C4030] rounded-3xl px-6 py-4 mb-6" />
-      <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-5 gap-4">
+      <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Поиск" className="w-full bg-[#3F2A1F] border border-[#5C4030] rounded-2xl px-4 py-3 mb-6" />
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4">
         {filtered.map((p) => (
-          <button type="button" key={p.id} onClick={() => openEdit(p)} className="card p-5 text-left">
-            <div className="flex justify-between"><p className="font-semibold text-lg">{p.name}</p><Pencil className="w-4 h-4 text-[#C8A77E]" /></div>
-            <p className="text-[#C8A77E] text-sm">{CATS.find((c) => c.id === p.category)?.label || p.category}</p>
-            <p className="text-3xl font-mono mt-4">{p.price} с</p>
+          <button type="button" key={p.id} onClick={() => openEdit(p)} className="card p-4 text-left">
+            <div className="flex justify-between gap-2"><p className="font-semibold text-base sm:text-lg line-clamp-2">{p.name}</p><Pencil className="w-4 h-4 text-[#C8A77E] shrink-0" /></div>
+            <p className="text-[#C8A77E] text-xs sm:text-sm mt-1">{CATS.find((c) => c.id === p.category)?.label || p.category}</p>
+            <p className="text-2xl sm:text-3xl font-mono mt-3">{p.price} с</p>
           </button>
         ))}
       </div>
       {open && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-          <div className="bg-[#3F2A1F] rounded-3xl p-8 w-full max-w-md space-y-4">
-            <h2 className="text-2xl">{form.id ? 'Изменить товар' : 'Новый товар'}</h2>
-            <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Название" className="w-full bg-[#2C241E] border border-[#5C4030] rounded-3xl px-5 py-4" />
-            <input type="number" value={form.price} onChange={(e) => setForm({ ...form, price: Number(e.target.value) })} placeholder="Цена" className="w-full bg-[#2C241E] border border-[#5C4030] rounded-3xl px-5 py-4" />
-            <select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} className="w-full bg-[#2C241E] border border-[#5C4030] rounded-3xl px-5 py-4">
+        <div className="fixed inset-0 bg-black/70 flex items-end sm:items-center justify-center z-50 p-3">
+          <div className="bg-[#3F2A1F] rounded-3xl p-5 sm:p-8 w-full max-w-md space-y-4">
+            <h2 className="text-xl sm:text-2xl">{form.id ? 'Изменить товар' : 'Новый товар'}</h2>
+            <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Название" className="w-full bg-[#2C241E] border border-[#5C4030] rounded-2xl px-4 py-3" />
+            <input type="number" value={form.price} onChange={(e) => setForm({ ...form, price: Number(e.target.value) })} placeholder="Цена" className="w-full bg-[#2C241E] border border-[#5C4030] rounded-2xl px-4 py-3" />
+            <select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} className="w-full bg-[#2C241E] border border-[#5C4030] rounded-2xl px-4 py-3">
               {CATS.filter((c) => c.id !== 'all').map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
             </select>
             <label className="flex gap-3 items-center"><input type="checkbox" checked={form.track_stock} onChange={(e) => setForm({ ...form, track_stock: e.target.checked })} /> Готовый товар на складе</label>
             {error && <p className="text-red-400 text-sm">{error}</p>}
             <div className="flex gap-3">
-              <button type="button" onClick={() => setOpen(false)} className="flex-1 py-3 rounded-3xl border border-[#5C4030]">Отмена</button>
+              <button type="button" onClick={() => setOpen(false)} className="flex-1 py-3 rounded-2xl border border-[#5C4030]">Отмена</button>
               <button type="button" onClick={save} disabled={saving} className="flex-1 btn-primary py-3">{saving ? '...' : 'Сохранить'}</button>
             </div>
           </div>
