@@ -10,6 +10,7 @@
 html, body {
   background: var(--bg);
   color: #fff;
+  min-height: 100%;
 }
 
 .card {
@@ -27,4 +28,9 @@ html, body {
 
 input, select, textarea {
   outline: none;
+  max-width: 100%;
+}
+
+img, svg {
+  max-width: 100%;
 }
