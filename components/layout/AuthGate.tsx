@@ -9,17 +9,30 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      if (!data.session) {
+    let cancelled = false;
+
+    const check = async () => {
+      const { data, error } = await supabase.auth.getUser();
+      if (cancelled) return;
+      if (error || !data.user) {
         router.replace('/login');
         return;
       }
       setReady(true);
-    });
+    };
+
+    check();
     const { data } = supabase.auth.onAuthStateChange((_e, session) => {
-      if (!session) router.replace('/login');
+      if (!session) {
+        setReady(false);
+        router.replace('/login');
+      }
     });
-    return () => data.subscription.unsubscribe();
+
+    return () => {
+      cancelled = true;
+      data.subscription.unsubscribe();
+    };
   }, [router]);
 
   if (!ready) return <p className="text-white text-center py-20">Проверка смены...</p>;
