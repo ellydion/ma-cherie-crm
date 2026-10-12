@@ -35,7 +35,15 @@ export default function Sidebar() {
   }, [fetchProfile]);
 
   useEffect(() => {
-    setSidebar(false);
+    const mq = window.matchMedia('(min-width: 1024px)');
+    const apply = () => setSidebar(mq.matches);
+    apply();
+    mq.addEventListener('change', apply);
+    return () => mq.removeEventListener('change', apply);
+  }, [setSidebar]);
+
+  useEffect(() => {
+    if (window.innerWidth < 1024) setSidebar(false);
   }, [pathname, setSidebar]);
 
   return (
@@ -44,28 +52,29 @@ export default function Sidebar() {
         <button
           type="button"
           aria-label="Закрыть меню"
-          className="fixed inset-0 z-40 bg-black/50"
+          className="fixed inset-0 z-40 bg-black/50 lg:hidden"
           onClick={() => setSidebar(false)}
         />
       )}
 
       <aside
-        className={`fixed z-50 top-0 left-0 h-screen w-72 bg-[#3F2A1F] border-r border-[#5C4030] flex flex-col transition-transform duration-200 ${
-          sidebarOpen ? 'translate-x-0' : '-translate-x-full'
-        }`}
+        className={`fixed z-50 top-0 left-0 h-screen w-72 max-w-[85vw] bg-[#3F2A1F] border-r border-[#5C4030] flex flex-col transition-transform duration-200
+          lg:relative lg:z-auto lg:shrink-0 lg:translate-x-0
+          ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:hidden'}
+        `}
       >
-        <div className="p-5 border-b border-[#5C4030] flex items-center justify-between">
-          <Link href="/" className="flex items-center gap-3" onClick={() => setSidebar(false)}>
-            <Image src="/ma-cherie-logo.jpg" alt="Ma Cherie" width={48} height={48} className="object-contain rounded-2xl" />
-            <div>
-              <h1 className="text-xl font-semibold text-white">Ma Cherie</h1>
+        <div className="p-4 sm:p-5 border-b border-[#5C4030] flex items-center justify-between gap-2">
+          <Link href="/" className="flex items-center gap-3 min-w-0" onClick={() => window.innerWidth < 1024 && setSidebar(false)}>
+            <Image src="/ma-cherie-logo.jpg" alt="Ma Cherie" width={44} height={44} className="object-contain rounded-2xl shrink-0" />
+            <div className="min-w-0">
+              <h1 className="text-lg sm:text-xl font-semibold text-white truncate">Ma Cherie</h1>
               <p className="text-[10px] text-[#C8A77E] tracking-widest">COFFEE & MORE</p>
             </div>
           </Link>
           <button
             type="button"
             onClick={() => setSidebar(false)}
-            className="w-11 h-11 flex items-center justify-center rounded-2xl hover:bg-[#5C4030]"
+            className="lg:hidden w-11 h-11 flex items-center justify-center rounded-2xl hover:bg-[#5C4030] shrink-0"
           >
             <X className="w-6 h-6" />
           </button>
@@ -79,12 +88,10 @@ export default function Sidebar() {
               <Link
                 key={item.href}
                 href={item.href}
-                onClick={() => setSidebar(false)}
-                className={`flex items-center gap-4 px-4 py-3 rounded-3xl font-medium ${
-                  active ? 'bg-[#C8A77E] text-[#3F2A1F]' : 'text-white hover:bg-[#5C4030]'
-                }`}
+                onClick={() => { if (window.innerWidth < 1024) setSidebar(false); }}
+                className={`flex items-center gap-4 px-4 py-3 rounded-3xl font-medium ${active ? 'bg-[#C8A77E] text-[#3F2A1F]' : 'text-white hover:bg-[#5C4030]'}`}
               >
-                <Icon className="w-5 h-5" />
+                <Icon className="w-5 h-5 shrink-0" />
                 {item.name}
               </Link>
             );
@@ -93,7 +100,7 @@ export default function Sidebar() {
 
         <div className="p-4 border-t border-[#5C4030]">
           <div className="flex items-center gap-3 bg-[#2C241E] rounded-3xl p-3">
-            <div className="w-11 h-11 bg-[#C8A77E] rounded-2xl flex items-center justify-center text-2xl">
+            <div className="w-11 h-11 bg-[#C8A77E] rounded-2xl flex items-center justify-center text-2xl shrink-0">
               {profile?.avatar || '👨‍🍳'}
             </div>
             <div className="min-w-0">
