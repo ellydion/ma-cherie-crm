@@ -1,39 +1,35 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // === Основные настройки ===
   reactStrictMode: true,
-  poweredByHeader: false,           // Убирает X-Powered-By заголовок
-  compress: true,                   // Включает gzip/brotli сжатие
+  poweredByHeader: false,
+  compress: true,
 
-  // === Оптимизация изображений ===
   images: {
-    remotePatterns: [
-      // Можно добавить внешние домены позже, если понадобится
-      // { protocol: 'https', hostname: 'example.com' },
-    ],
-    // Локальные изображения из /public работают автоматически
+    remotePatterns: [],
   },
 
-  // === Оптимизация сборки и скорости ===
   experimental: {
-    optimizePackageImports: [
-      'lucide-react',           // Иконки
-      '@supabase/supabase-js',  // Supabase клиент
-    ],
+    optimizePackageImports: ['lucide-react', '@supabase/supabase-js'],
   },
 
-  // === Turbopack (для разработки) ===
-  turbopack: {
-    // Можно добавить правила при необходимости
+  async headers() {
+    return [
+      {
+        source: '/:path*',
+        headers: [
+          { key: 'X-Frame-Options', value: 'DENY' },
+          { key: 'X-Content-Type-Options', value: 'nosniff' },
+          { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+          { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
+          { key: 'X-DNS-Prefetch-Control', value: 'off' },
+          {
+            key: 'Strict-Transport-Security',
+            value: 'max-age=63072000; includeSubDomains; preload',
+          },
+        ],
+      },
+    ];
   },
-
-  // === Для продакшена (рекомендуется для Vercel) ===
-  // output: 'standalone',
-
-  // === Дополнительные оптимизации ===
-  // eslint: {
-  //   ignoreDuringBuilds: true, // Раскомментировать, если есть ошибки ESLint
-  // },
 };
 
 export default nextConfig;
