@@ -12,9 +12,9 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     let cancelled = false;
 
     const check = async () => {
-      const { data, error } = await supabase.auth.getUser();
+      const { data } = await supabase.auth.getSession();
       if (cancelled) return;
-      if (error || !data.user) {
+      if (!data.session) {
         router.replace('/login');
         return;
       }
@@ -22,11 +22,14 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     };
 
     check();
-    const { data } = supabase.auth.onAuthStateChange((_e, session) => {
-      if (!session) {
+
+    const { data } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_OUT') {
         setReady(false);
         router.replace('/login');
+        return;
       }
+      if (session) setReady(true);
     });
 
     return () => {
