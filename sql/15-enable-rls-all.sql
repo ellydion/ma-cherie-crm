@@ -91,20 +91,20 @@ CREATE POLICY settings_write ON app_settings
 
 DO '
 BEGIN
-  EXECUTE ''ALTER VIEW IF EXISTS public.warehouse_stock SET (security_invoker = true)'';
+  EXECUTE ''ALTER VIEW public.warehouse_stock SET (security_invoker = true)'';
 EXCEPTION WHEN OTHERS THEN
   NULL;
 END;
 ';
 
 UPDATE profiles
-SET role = ''admin''
-WHERE lower(email) = ''admin@macherie.coffee'';
+SET role = 'admin'
+WHERE lower(email) = 'admin@macherie.coffee';
 
 SELECT c.relname AS table_name,
        c.relrowsecurity AS rls_enabled
 FROM pg_class c
 JOIN pg_namespace n ON n.oid = c.relnamespace
-WHERE n.nspname = ''public''
-  AND c.relkind = ''r''
+WHERE n.nspname = 'public'
+  AND c.relkind = 'r'
 ORDER BY c.relname;
