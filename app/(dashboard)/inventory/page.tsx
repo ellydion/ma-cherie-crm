@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase/client';
 import { downloadXlsx } from '@/lib/excel';
-import { useProfileStore } from '@/lib/store/profileStore';
+import { useZone } from '@/lib/useZone';
 import { zoneLabel } from '@/lib/zone';
 
 type Row = { id: string; name: string; unit: string; quantity: number; min_threshold: number; section: string; kind?: string };
@@ -19,9 +19,7 @@ const CATS = [
 const ADMIN = 'admin@macherie.coffee';
 
 export default function InventoryPage() {
-  const profile = useProfileStore((s) => s.profile);
-  const fetchProfile = useProfileStore((s) => s.fetchProfile);
-  const zone = profile?.zone || 'all';
+  const { zone, isAdmin: adminFromProfile } = useZone();
   const [rows, setRows] = useState<Row[]>([]);
   const [cat, setCat] = useState(zone === 'all' ? 'all' : zone);
   const [search, setSearch] = useState('');
@@ -29,7 +27,7 @@ export default function InventoryPage() {
   const [editId, setEditId] = useState<string | null>(null);
   const [editQty, setEditQty] = useState(0);
   const [msg, setMsg] = useState('');
-  const isAdmin = email.toLowerCase() === ADMIN;
+  const isAdmin = email.toLowerCase() === ADMIN || adminFromProfile;
 
   const load = async () => {
     const { data: auth } = await supabase.auth.getUser();
@@ -39,7 +37,7 @@ export default function InventoryPage() {
     const { data: ings } = await supabase.from('ingredients').select('*').order('name');
     setRows((ings || []).map((i: any) => ({ ...i, kind: 'ingredient' })));
   };
-  useEffect(() => { fetchProfile(); load(); }, [fetchProfile]);
+  useEffect(() => { load(); }, []);
   useEffect(() => { if (zone !== 'all') setCat(zone); }, [zone]);
 
   const filtered = rows.filter((r) => {
