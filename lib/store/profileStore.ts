@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { supabase } from '@/lib/supabase/client';
+import { Zone, zoneFromEmail } from '@/lib/zone';
 
 export type Profile = {
   id: string;
@@ -9,6 +10,8 @@ export type Profile = {
   phone: string;
   email: string;
   avatar: string;
+  role?: string;
+  zone: Zone;
 };
 
 type Store = {
@@ -28,15 +31,20 @@ export const useProfileStore = create<Store>()(
           set({ profile: null });
           return;
         }
+        const email = auth.user.email || '';
         const { data } = await supabase.from('profiles').select('*').eq('id', auth.user.id).maybeSingle();
+        const fromEmail = zoneFromEmail(email);
+        const zone: Zone = fromEmail !== 'all' ? fromEmail : (data?.zone === 'kitchen' || data?.zone === 'coffee' ? data.zone : 'all');
         set({
-          profile: data || {
+          profile: {
             id: auth.user.id,
-            name: (auth.user.user_metadata?.name as string) || auth.user.email || 'Сотрудник',
-            position: (auth.user.user_metadata?.position as string) || 'Бариста',
-            phone: '',
-            email: auth.user.email || '',
-            avatar: '👨‍🍳',
+            name: data?.name || (auth.user.user_metadata?.name as string) || email || 'Сотрудник',
+            position: data?.position || (auth.user.user_metadata?.position as string) || (zone === 'kitchen' ? 'Кухня' : zone === 'coffee' ? 'Бариста' : 'Админ'),
+            phone: data?.phone || '',
+            email,
+            avatar: data?.avatar || (zone === 'kitchen' ? '👨‍🍳' : '☕'),
+            role: data?.role || 'staff',
+            zone,
           },
         });
       },
