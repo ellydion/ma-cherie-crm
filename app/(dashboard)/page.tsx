@@ -2,10 +2,17 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Coffee } from 'lucide-react';
+import { Coffee, Utensils } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
+import { useProfileStore } from '@/lib/store/profileStore';
+import { ProductZone, Zone, productZone, zoneLabel } from '@/lib/zone';
 
 export default function DashboardPage() {
+  const profile = useProfileStore((s) => s.profile);
+  const fetchProfile = useProfileStore((s) => s.fetchProfile);
+  const locked = profile?.zone && profile.zone !== 'all' ? profile.zone : null;
+  const [view, setView] = useState<ProductZone>('coffee');
+  const zone: ProductZone = locked || view;
   const [revenue, setRevenue] = useState(0);
   const [ordersCount, setOrdersCount] = useState(0);
   const [avg, setAvg] = useState(0);
@@ -15,6 +22,8 @@ export default function DashboardPage() {
   const [recent, setRecent] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
+  useEffect(() => { fetchProfile(); }, [fetchProfile]);
+
   const load = async () => {
     const start = new Date();
     start.setHours(0, 0, 0, 0);
@@ -23,80 +32,112 @@ export default function DashboardPage() {
       .select('id, total, created_at, payment_method, table_number')
       .gte('created_at', start.toISOString())
       .order('created_at', { ascending: false });
-
     const list = orders || [];
-    const rev = list.reduce((s, o) => s + Number(o.total), 0);
-    setRevenue(rev);
-    setOrdersCount(list.length);
-    setAvg(list.length ? Math.round(rev / list.length) : 0);
-    setCash(list.filter((o) => o.payment_method === 'cash').reduce((s, o) => s + Number(o.total), 0));
-    setTransfer(list.filter((o) => o.payment_method === 'transfer').reduce((s, o) => s + Number(o.total), 0));
-    setRecent(list.slice(0, 8));
-
     const ids = list.map((o) => o.id);
-    if (ids.length) {
-      const { data: items } = await supabase.from('order_items').select('product_name, quantity, price').in('order_id', ids);
-      const map = new Map<string, { name: string; qty: number; sum: number }>();
-      (items || []).forEach((row: any) => {
-        const cur = map.get(row.product_name) || { name: row.product_name, qty: 0, sum: 0 };
-        cur.qty += Number(row.quantity);
-        cur.sum += Number(row.quantity) * Number(row.price);
-        map.set(row.product_name, cur);
-      });
-      setSold(Array.from(map.values()).sort((a, b) => b.qty - a.qty).slice(0, 12));
-    } else setSold([]);
+    const { data: items } = ids.length
+      ? await supabase.from('order_items').select('order_id, product_id, product_name, quantity, price').in('order_id', ids)
+      : { data: [] as any[] };
+    const { data: products } = await supabase.from('products').select('id, name, section, category');
+    const zones = new Map((products || []).map((p: any) => [p.id, productZone(p)]));
+
+    const map = new Map<string, { name: string; qty: number; sum: number }>();
+    const orderShare = new Map<string, { zone: number; all: number }>();
+    (items || []).forEach((row: any) => {
+      const lineSum = Number(row.quantity) * Number(row.price);
+      const z = zones.get(row.product_id) || productZone({ name: row.product_name });
+      const share = orderShare.get(row.order_id) || { zone: 0, all: 0 };
+      share.all += lineSum;
+      if (z === zone) share.zone += lineSum;
+      orderShare.set(row.order_id, share);
+      if (z !== zone) return;
+      const cur = map.get(row.product_name) || { name: row.product_name, qty: 0, sum: 0 };
+      cur.qty += Number(row.quantity);
+      cur.sum += lineSum;
+      map.set(row.product_name, cur);
+    });
+
+    let rev = 0;
+    let cashSum = 0;
+    let transferSum = 0;
+    const recentZone: any[] = [];
+    list.forEach((o) => {
+      const share = orderShare.get(o.id);
+      if (!share || share.zone <= 0) return;
+      const part = share.all > 0 ? share.zone / share.all : 0;
+      const amount = Math.round(Number(o.total) * part);
+      rev += amount;
+      if (o.payment_method === 'cash') cashSum += amount;
+      if (o.payment_method === 'transfer') transferSum += amount;
+      recentZone.push({ ...o, zoneTotal: amount });
+    });
+
+    setRevenue(rev);
+    setOrdersCount(recentZone.length);
+    setAvg(recentZone.length ? Math.round(rev / recentZone.length) : 0);
+    setCash(cashSum);
+    setTransfer(transferSum);
+    setRecent(recentZone.slice(0, 8));
+    setSold(Array.from(map.values()).sort((a, b) => b.qty - a.qty).slice(0, 12));
     setLoading(false);
   };
 
   useEffect(() => {
+    setLoading(true);
     load();
     const t = setInterval(load, 20000);
     return () => clearInterval(t);
-  }, []);
+  }, [zone]);
 
   if (loading) return <p className="text-center py-12">Загрузка...</p>;
 
   return (
     <div className="max-w-screen-2xl mx-auto">
-      <div className="flex justify-between items-center mb-10">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
         <div>
-          <h1 className="text-5xl font-semibold">Ma Cherie</h1>
-          <p className="text-[#C8A77E] text-xl mt-1">Что продали сегодня — на всех кассах одно и то же</p>
+          <h1 className="text-3xl sm:text-5xl font-semibold">{zoneLabel(zone)}</h1>
+          <p className="text-[#C8A77E] text-lg sm:text-xl mt-1">Продажи сегодня · {locked ? 'только эта зона' : 'админ видит обе'}</p>
         </div>
-        <Link href="/pos" className="btn-primary px-10 py-5 text-xl flex items-center gap-3">
-          <Coffee /> Новый заказ
-        </Link>
+        <div className="flex gap-2 w-full sm:w-auto">
+          {!locked && (['coffee', 'kitchen'] as Zone[]).map((z) => (
+            <button key={z} type="button" onClick={() => setView(z as ProductZone)} className={`flex-1 sm:flex-none px-4 py-3 rounded-2xl ${view === z ? 'bg-[#C8A77E] text-[#3F2A1F]' : 'bg-[#3F2A1F]'}`}>
+              {zoneLabel(z)}
+            </button>
+          ))}
+          <Link href="/pos" className="btn-primary px-5 py-3 text-lg flex items-center justify-center gap-2">
+            {zone === 'kitchen' ? <Utensils /> : <Coffee />} Заказ
+          </Link>
+        </div>
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
-        <div className="card p-6"><p className="text-[#C8A77E] text-sm">Выручка</p><p className="text-4xl font-mono mt-2">{revenue} с</p></div>
-        <div className="card p-6"><p className="text-[#C8A77E] text-sm">Заказы</p><p className="text-4xl font-mono mt-2">{ordersCount}</p></div>
-        <div className="card p-6"><p className="text-[#C8A77E] text-sm">Средний чек</p><p className="text-4xl font-mono mt-2">{avg} с</p></div>
-        <div className="card p-6">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 mb-8">
+        <div className="card p-5"><p className="text-[#C8A77E] text-sm">Выручка</p><p className="text-3xl sm:text-4xl font-mono mt-2">{revenue} с</p></div>
+        <div className="card p-5"><p className="text-[#C8A77E] text-sm">Заказы</p><p className="text-3xl sm:text-4xl font-mono mt-2">{ordersCount}</p></div>
+        <div className="card p-5"><p className="text-[#C8A77E] text-sm">Средний чек</p><p className="text-3xl sm:text-4xl font-mono mt-2">{avg} с</p></div>
+        <div className="card p-5">
           <p className="text-[#C8A77E] text-sm mb-2">Оплата</p>
           <p className="text-emerald-400">Наличка {cash} с</p>
           <p className="text-blue-400">Перевод {transfer} с</p>
         </div>
       </div>
 
-      <div className="grid lg:grid-cols-2 gap-8">
+      <div className="grid lg:grid-cols-2 gap-6">
         <div className="card overflow-hidden">
-          <h2 className="text-2xl p-6">Продали сегодня</h2>
-          {sold.length === 0 ? <p className="p-6 text-gray-400">Пока пусто</p> : (
+          <h2 className="text-xl sm:text-2xl p-5">Продали сегодня</h2>
+          {sold.length === 0 ? <p className="p-5 text-gray-400">Пока пусто</p> : (
             <table className="w-full"><thead><tr className="border-t border-[#5C4030] text-left"><th className="p-4">Товар</th><th className="p-4">Кол-во</th><th className="p-4">Сумма</th></tr></thead>
               <tbody>{sold.map((r) => <tr key={r.name} className="border-t border-[#5C4030]"><td className="p-4">{r.name}</td><td className="p-4 font-mono">{r.qty}</td><td className="p-4 font-mono text-[#C8A77E]">{r.sum} с</td></tr>)}</tbody>
             </table>
           )}
         </div>
         <div className="card overflow-hidden">
-          <h2 className="text-2xl p-6">Последние чеки</h2>
-          {recent.length === 0 ? <p className="p-6 text-gray-400">Нет заказов</p> : (
-            <table className="w-full"><thead><tr className="border-t border-[#5C4030] text-left"><th className="p-4">Время</th><th className="p-4">Стол</th><th className="p-4">Сумма</th></tr></thead>
+          <h2 className="text-xl sm:text-2xl p-5">Последние чеки зоны</h2>
+          {recent.length === 0 ? <p className="p-5 text-gray-400">Нет заказов</p> : (
+            <table className="w-full"><thead><tr className="border-t border-[#5C4030] text-left"><th className="p-4">Время</th><th className="p-4">Стол</th><th className="p-4">Сумма зоны</th></tr></thead>
               <tbody>{recent.map((o) => (
                 <tr key={o.id} className="border-t border-[#5C4030]">
                   <td className="p-4 text-gray-400">{new Date(o.created_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}</td>
                   <td className="p-4">{o.table_number || '—'}</td>
-                  <td className="p-4 font-mono text-[#C8A77E]">{o.total} с</td>
+                  <td className="p-4 font-mono text-[#C8A77E]">{o.zoneTotal} с</td>
                 </tr>
               ))}</tbody>
             </table>
