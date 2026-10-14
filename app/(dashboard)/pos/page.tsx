@@ -4,9 +4,21 @@ import { useEffect, useState } from 'react';
 import { Plus, Minus, Trash2 } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
 import { useShiftStore } from '@/lib/store/shiftStore';
+import { useProfileStore } from '@/lib/store/profileStore';
+import { productZone, zoneLabel } from '@/lib/zone';
 
-type Product = { id: string; name: string; price: number; category: string; track_stock?: boolean };
+type Product = { id: string; name: string; price: number; category: string; section?: string; track_stock?: boolean };
 type Line = Product & { quantity: number };
+
+const CATS = [
+  ['all', 'Все'],
+  ['coffee', 'Кофе'],
+  ['nitro', 'Нитро'],
+  ['asu', 'Асу'],
+  ['kitchen', 'Кухня'],
+  ['drinks', 'Напитки'],
+  ['desserts', 'Десерты'],
+] as const;
 
 export default function PosPage() {
   const [products, setProducts] = useState<Product[]>([]);
@@ -17,14 +29,18 @@ export default function PosPage() {
   const [loadError, setLoadError] = useState('');
   const currentShift = useShiftStore((s) => s.current);
   const refreshShift = useShiftStore((s) => s.refresh);
+  const profile = useProfileStore((s) => s.profile);
+  const fetchProfile = useProfileStore((s) => s.fetchProfile);
+  const zone = profile?.zone || 'all';
   const [customers, setCustomers] = useState<any[]>([]);
   const [customerId, setCustomerId] = useState('');
 
   useEffect(() => {
+    fetchProfile();
     const load = async () => {
       const { data, error } = await supabase
         .from('products')
-        .select('id, name, price, category, track_stock')
+        .select('id, name, price, category, section, track_stock')
         .order('name');
       if (error) {
         setLoadError(error.message);
@@ -37,9 +53,10 @@ export default function PosPage() {
     load();
     refreshShift();
     supabase.from('customers').select('id, name, loyalty_level, points, total_spent').order('name').then(({ data }) => setCustomers(data || []));
-  }, [refreshShift]);
+  }, [refreshShift, fetchProfile]);
 
-  const list = products.filter((p) => (cat === 'all' || p.category === cat) && p.name.toLowerCase().includes(search.toLowerCase()));
+  const zoneProducts = products.filter((p) => zone === 'all' || productZone(p) === zone);
+  const list = zoneProducts.filter((p) => (cat === 'all' || p.category === cat) && p.name.toLowerCase().includes(search.toLowerCase()));
   const subtotal = lines.reduce((s, l) => s + l.price * l.quantity, 0);
   const guest = customers.find((c) => c.id === customerId);
   const discountPct = guest?.loyalty_level === 'Platinum' ? 15 : guest?.loyalty_level === 'Gold' ? 10 : guest?.loyalty_level === 'Silver' ? 5 : 0;
@@ -55,37 +72,21 @@ export default function PosPage() {
   };
 
   const writeOff = async (line: Line) => {
-    const { data: recipe } = await supabase
-      .from('product_ingredients')
-      .select('ingredient_id, quantity')
-      .eq('product_id', line.id);
+    const { data: recipe } = await supabase.from('product_ingredients').select('ingredient_id, quantity').eq('product_id', line.id);
     if (recipe && recipe.length) {
       for (const r of recipe) {
         const qty = Number(r.quantity) * line.quantity;
-        const { error } = await supabase.rpc('decrement_ingredient_quantity', {
-          ingredient_id: r.ingredient_id,
-          qty,
-        });
+        const { error } = await supabase.rpc('decrement_ingredient_quantity', { ingredient_id: r.ingredient_id, qty });
         if (error) {
-          const { data: ing } = await supabase
-            .from('ingredients')
-            .select('quantity')
-            .eq('id', r.ingredient_id)
-            .maybeSingle();
-          if (ing) {
-            await supabase.from('ingredients').update({
-              quantity: Math.max(0, Number(ing.quantity) - qty),
-            }).eq('id', r.ingredient_id);
-          }
+          const { data: ing } = await supabase.from('ingredients').select('quantity').eq('id', r.ingredient_id).maybeSingle();
+          if (ing) await supabase.from('ingredients').update({ quantity: Math.max(0, Number(ing.quantity) - qty) }).eq('id', r.ingredient_id);
         }
       }
       return;
     }
     const { data: product } = await supabase.from('products').select('quantity, track_stock').eq('id', line.id).maybeSingle();
     if (product?.track_stock) {
-      await supabase.from('products').update({
-        quantity: Math.max(0, Number(product.quantity) - line.quantity),
-      }).eq('id', line.id);
+      await supabase.from('products').update({ quantity: Math.max(0, Number(product.quantity) - line.quantity) }).eq('id', line.id);
     }
   };
 
@@ -126,11 +127,14 @@ export default function PosPage() {
     <div className="h-full flex flex-col min-h-0">
       {loadError && <p className="text-red-400 mb-3 text-sm">Ошибка меню: {loadError}</p>}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
-        <h1 className="text-2xl sm:text-3xl lg:text-4xl font-semibold">Касса</h1>
+        <div>
+          <h1 className="text-2xl sm:text-3xl lg:text-4xl font-semibold">Касса · {zoneLabel(zone)}</h1>
+          <p className="text-[#C8A77E] text-sm">{zone === 'all' ? 'Все товары' : `Только ${zoneLabel(zone).toLowerCase()}`}</p>
+        </div>
         <input value={table} onChange={(e) => setTable(e.target.value)} className="bg-[#3F2A1F] border border-[#5C4030] rounded-2xl px-4 py-3 w-full sm:w-40" />
       </div>
       <div className="flex gap-2 mb-4 flex-wrap">
-        {[['all','Все'],['coffee','Кофе'],['nitro','Нитро'],['asu','Асу'],['kitchen','Кухня'],['drinks','Напитки'],['desserts','Десерты']].map(([id,label]) => (
+        {CATS.map(([id, label]) => (
           <button key={id} type="button" onClick={() => setCat(id)} className={`px-4 py-2 rounded-2xl text-sm ${cat === id ? 'bg-[#C8A77E] text-[#3F2A1F]' : 'bg-[#3F2A1F]'}`}>
             {label}
           </button>
@@ -145,14 +149,13 @@ export default function PosPage() {
               <p className="text-[#C8A77E] text-xl sm:text-2xl font-mono mt-2">{p.price}</p>
             </button>
           ))}
+          {list.length === 0 && <p className="text-gray-400 col-span-full">В этой зоне товаров нет</p>}
         </div>
         <div className="w-full lg:w-96 card p-4 sm:p-5 flex flex-col shrink-0 max-h-[55vh] lg:max-h-none">
           <h2 className="text-lg sm:text-xl mb-3 truncate">{table}</h2>
           <select value={customerId} onChange={(e) => setCustomerId(e.target.value)} className="mb-3 bg-[#2C241E] border border-[#5C4030] rounded-2xl px-3 py-3 w-full">
             <option value="">Без карты лояльности</option>
-            {customers.map((c) => (
-              <option key={c.id} value={c.id}>{c.name} · {c.loyalty_level}</option>
-            ))}
+            {customers.map((c) => <option key={c.id} value={c.id}>{c.name} · {c.loyalty_level}</option>)}
           </select>
           <div className="flex-1 overflow-auto space-y-2 min-h-[8rem]">
             {lines.length === 0 && <p className="text-gray-400">Добавь товары</p>}
