@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react';
 import { Plus, Pencil } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
+import { useProfileStore } from '@/lib/store/profileStore';
+import { productZone, zoneLabel } from '@/lib/zone';
 
 type Product = {
   id?: string;
@@ -24,11 +26,12 @@ const CATS = [
   { id: 'desserts', label: 'Десерты' },
 ];
 
-const empty: Product = {
-  name: '', price: 0, category: 'coffee', unit: 'шт', section: 'coffee', track_stock: false,
-};
+const empty: Product = { name: '', price: 0, category: 'coffee', unit: 'шт', section: 'coffee', track_stock: false };
 
 export default function ProductsPage() {
+  const profile = useProfileStore((s) => s.profile);
+  const fetchProfile = useProfileStore((s) => s.fetchProfile);
+  const zone = profile?.zone || 'all';
   const [items, setItems] = useState<Product[]>([]);
   const [cat, setCat] = useState('all');
   const [search, setSearch] = useState('');
@@ -43,27 +46,32 @@ export default function ProductsPage() {
     else setItems((data || []) as Product[]);
   };
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { fetchProfile(); load(); }, [fetchProfile]);
 
   const filtered = items.filter((p) => {
+    if (zone !== 'all' && productZone(p) !== zone) return false;
     const okCat = cat === 'all' || p.category === cat;
-    const okSearch = p.name.toLowerCase().includes(search.toLowerCase());
-    return okCat && okSearch;
+    return okCat && p.name.toLowerCase().includes(search.toLowerCase());
   });
 
-  const openNew = () => { setForm(empty); setError(''); setOpen(true); };
+  const openNew = () => {
+    setForm({ ...empty, category: zone === 'kitchen' ? 'kitchen' : 'coffee', section: zone === 'kitchen' ? 'kitchen' : 'coffee' });
+    setError('');
+    setOpen(true);
+  };
   const openEdit = (p: Product) => { setForm({ ...p, track_stock: !!p.track_stock }); setError(''); setOpen(true); };
 
   const save = async () => {
     if (!form.name.trim()) { setError('Название обязательно'); return; }
     setSaving(true);
     setError('');
+    const section = form.category === 'kitchen' || form.category === 'desserts' ? 'kitchen' : 'coffee';
     const payload = {
       name: form.name.trim(),
       price: Number(form.price) || 0,
       category: form.category,
       unit: form.unit || 'шт',
-      section: form.category === 'kitchen' || form.category === 'desserts' ? 'kitchen' : 'coffee',
+      section,
       track_stock: !!form.track_stock,
     };
     const { error: err } = form.id
@@ -79,8 +87,8 @@ export default function ProductsPage() {
     <div>
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
         <div>
-          <h1 className="text-2xl sm:text-3xl lg:text-4xl font-semibold">Товары</h1>
-          <p className="text-[#C8A77E] text-sm sm:text-base">Только то, что продаётся на кассе</p>
+          <h1 className="text-2xl sm:text-3xl lg:text-4xl font-semibold">Товары · {zoneLabel(zone)}</h1>
+          <p className="text-[#C8A77E] text-sm sm:text-base">То, что продаётся на кассе этой зоны</p>
         </div>
         <button type="button" onClick={openNew} className="btn-primary px-5 py-3 flex items-center justify-center gap-2 w-full sm:w-auto">
           <Plus className="w-5 h-5" /> Добавить товар
@@ -88,9 +96,7 @@ export default function ProductsPage() {
       </div>
       <div className="flex gap-2 flex-wrap mb-4">
         {CATS.map((c) => (
-          <button key={c.id} type="button" onClick={() => setCat(c.id)} className={`px-4 py-2 rounded-2xl text-sm ${cat === c.id ? 'bg-[#C8A77E] text-[#3F2A1F]' : 'bg-[#3F2A1F]'}`}>
-            {c.label}
-          </button>
+          <button key={c.id} type="button" onClick={() => setCat(c.id)} className={`px-4 py-2 rounded-2xl text-sm ${cat === c.id ? 'bg-[#C8A77E] text-[#3F2A1F]' : 'bg-[#3F2A1F]'}`}>{c.label}</button>
         ))}
       </div>
       <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Поиск" className="w-full bg-[#3F2A1F] border border-[#5C4030] rounded-2xl px-4 py-3 mb-6" />
