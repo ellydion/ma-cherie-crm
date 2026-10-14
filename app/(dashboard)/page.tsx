@@ -4,15 +4,11 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Coffee, Utensils } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
-import { useProfileStore } from '@/lib/store/profileStore';
-import { ProductZone, Zone, productZone, zoneLabel } from '@/lib/zone';
+import { useZone } from '@/lib/useZone';
+import { productZone, zoneLabel } from '@/lib/zone';
 
 export default function DashboardPage() {
-  const profile = useProfileStore((s) => s.profile);
-  const fetchProfile = useProfileStore((s) => s.fetchProfile);
-  const locked = profile?.zone && profile.zone !== 'all' ? profile.zone : null;
-  const [view, setView] = useState<ProductZone>('coffee');
-  const zone: ProductZone = locked || view;
+  const { zone, isAdmin } = useZone();
   const [revenue, setRevenue] = useState(0);
   const [ordersCount, setOrdersCount] = useState(0);
   const [avg, setAvg] = useState(0);
@@ -21,8 +17,6 @@ export default function DashboardPage() {
   const [sold, setSold] = useState<{ name: string; qty: number; sum: number }[]>([]);
   const [recent, setRecent] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-
-  useEffect(() => { fetchProfile(); }, [fetchProfile]);
 
   const load = async () => {
     const start = new Date();
@@ -47,9 +41,9 @@ export default function DashboardPage() {
       const z = zones.get(row.product_id) || productZone({ name: row.product_name });
       const share = orderShare.get(row.order_id) || { zone: 0, all: 0 };
       share.all += lineSum;
-      if (z === zone) share.zone += lineSum;
+      if (zone === 'all' || z === zone) share.zone += lineSum;
       orderShare.set(row.order_id, share);
-      if (z !== zone) return;
+      if (zone !== 'all' && z !== zone) return;
       const cur = map.get(row.product_name) || { name: row.product_name, qty: 0, sum: 0 };
       cur.qty += Number(row.quantity);
       cur.sum += lineSum;
@@ -95,18 +89,13 @@ export default function DashboardPage() {
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
         <div>
           <h1 className="text-3xl sm:text-5xl font-semibold">{zoneLabel(zone)}</h1>
-          <p className="text-[#C8A77E] text-lg sm:text-xl mt-1">Продажи сегодня · {locked ? 'только эта зона' : 'админ видит обе'}</p>
+          <p className="text-[#C8A77E] text-lg sm:text-xl mt-1">
+            {isAdmin ? 'Переключение зон — кнопки в меню слева' : 'Только эта зона'}
+          </p>
         </div>
-        <div className="flex gap-2 w-full sm:w-auto">
-          {!locked && (['coffee', 'kitchen'] as Zone[]).map((z) => (
-            <button key={z} type="button" onClick={() => setView(z as ProductZone)} className={`flex-1 sm:flex-none px-4 py-3 rounded-2xl ${view === z ? 'bg-[#C8A77E] text-[#3F2A1F]' : 'bg-[#3F2A1F]'}`}>
-              {zoneLabel(z)}
-            </button>
-          ))}
-          <Link href="/pos" className="btn-primary px-5 py-3 text-lg flex items-center justify-center gap-2">
-            {zone === 'kitchen' ? <Utensils /> : <Coffee />} Заказ
-          </Link>
-        </div>
+        <Link href="/pos" className="btn-primary px-5 py-3 text-lg flex items-center justify-center gap-2">
+          {zone === 'kitchen' ? <Utensils /> : <Coffee />} Заказ
+        </Link>
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 mb-8">
@@ -130,9 +119,9 @@ export default function DashboardPage() {
           )}
         </div>
         <div className="card overflow-hidden">
-          <h2 className="text-xl sm:text-2xl p-5">Последние чеки зоны</h2>
+          <h2 className="text-xl sm:text-2xl p-5">Последние чеки</h2>
           {recent.length === 0 ? <p className="p-5 text-gray-400">Нет заказов</p> : (
-            <table className="w-full"><thead><tr className="border-t border-[#5C4030] text-left"><th className="p-4">Время</th><th className="p-4">Стол</th><th className="p-4">Сумма зоны</th></tr></thead>
+            <table className="w-full"><thead><tr className="border-t border-[#5C4030] text-left"><th className="p-4">Время</th><th className="p-4">Стол</th><th className="p-4">Сумма</th></tr></thead>
               <tbody>{recent.map((o) => (
                 <tr key={o.id} className="border-t border-[#5C4030]">
                   <td className="p-4 text-gray-400">{new Date(o.created_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}</td>
