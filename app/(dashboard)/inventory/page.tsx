@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase/client';
 import { downloadXlsx } from '@/lib/excel';
+import { useProfileStore } from '@/lib/store/profileStore';
+import { zoneLabel } from '@/lib/zone';
 
 type Row = { id: string; name: string; unit: string; quantity: number; min_threshold: number; section: string; kind?: string };
 
@@ -17,8 +19,11 @@ const CATS = [
 const ADMIN = 'admin@macherie.coffee';
 
 export default function InventoryPage() {
+  const profile = useProfileStore((s) => s.profile);
+  const fetchProfile = useProfileStore((s) => s.fetchProfile);
+  const zone = profile?.zone || 'all';
   const [rows, setRows] = useState<Row[]>([]);
-  const [cat, setCat] = useState('all');
+  const [cat, setCat] = useState(zone === 'all' ? 'all' : zone);
   const [search, setSearch] = useState('');
   const [email, setEmail] = useState('');
   const [editId, setEditId] = useState<string | null>(null);
@@ -34,9 +39,11 @@ export default function InventoryPage() {
     const { data: ings } = await supabase.from('ingredients').select('*').order('name');
     setRows((ings || []).map((i: any) => ({ ...i, kind: 'ingredient' })));
   };
-  useEffect(() => { load(); }, []);
+  useEffect(() => { fetchProfile(); load(); }, [fetchProfile]);
+  useEffect(() => { if (zone !== 'all') setCat(zone); }, [zone]);
 
   const filtered = rows.filter((r) => {
+    if (zone !== 'all' && r.section !== zone) return false;
     if (cat === 'coffee' || cat === 'kitchen') { if (r.section !== cat) return false; }
     else if (cat === 'ingredient' || cat === 'product') { if ((r.kind || 'ingredient') !== cat) return false; }
     return r.name.toLowerCase().includes(search.toLowerCase());
@@ -60,24 +67,24 @@ export default function InventoryPage() {
     <div>
       <div className="flex flex-wrap justify-between gap-4 mb-2">
         <div>
-          <h1 className="text-4xl font-semibold">Склад</h1>
-          <p className="text-[#C8A77E]">Общее место остатков</p>
+          <h1 className="text-3xl sm:text-4xl font-semibold">Склад · {zoneLabel(zone)}</h1>
+          <p className="text-[#C8A77E]">Остатки этой зоны</p>
         </div>
-        <button type="button" onClick={() => downloadXlsx('sklad-inventar.xlsx', filtered.map((r) => ({
+        <button type="button" onClick={() => downloadXlsx(`sklad-${zone}.xlsx`, filtered.map((r) => ({
           позиция: r.name, тип: r.kind === 'product' ? 'готовый товар' : 'ингредиент', секция: r.section,
           остаток: r.quantity, единица: r.unit, минимум: r.min_threshold, статус: status(Number(r.quantity), Number(r.min_threshold)).t,
-        })))} className="px-6 py-4 rounded-3xl border border-[#5C4030]">Excel инвентаризация</button>
+        })))} className="px-6 py-4 rounded-3xl border border-[#5C4030]">Excel</button>
       </div>
       {isAdmin ? <p className="text-emerald-400 text-sm mb-4">Админ: нажми на количество</p> : <p className="text-gray-400 text-sm mb-4">Остаток меняет admin@macherie.coffee</p>}
       {msg && <p className="text-amber-400 mb-3">{msg}</p>}
       <div className="flex gap-2 flex-wrap mb-4">
-        {CATS.map((c) => (
+        {CATS.filter((c) => zone === 'all' || c.id === 'all' || c.id === zone || c.id === 'ingredient' || c.id === 'product').map((c) => (
           <button key={c.id} type="button" onClick={() => setCat(c.id)} className={`px-5 py-3 rounded-3xl ${cat === c.id ? 'bg-[#C8A77E] text-[#3F2A1F]' : 'bg-[#3F2A1F]'}`}>{c.label}</button>
         ))}
       </div>
       <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Поиск" className="w-full bg-[#3F2A1F] border border-[#5C4030] rounded-3xl px-6 py-4 mb-6" />
-      <div className="card overflow-hidden">
-        <table className="w-full">
+      <div className="card overflow-x-auto">
+        <table className="w-full min-w-[720px]">
           <thead><tr className="text-left border-b border-[#5C4030]"><th className="p-5">Позиция</th><th className="p-5">Тип</th><th className="p-5">Секция</th><th className="p-5">Остаток</th><th className="p-5">Статус</th></tr></thead>
           <tbody>
             {filtered.map((r) => {
