@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation';
 import Image from 'next/image';
 import { useProfileStore } from '@/lib/store/profileStore';
 import { useUiStore } from '@/lib/store/uiStore';
+import { zoneLabel } from '@/lib/zone';
 import {
   LayoutDashboard, Receipt, Coffee, Leaf, Package, BookOpen,
   Users, Truck, BarChart3, Settings, LogOut, X, Clock,
@@ -29,6 +30,7 @@ export default function Sidebar() {
   const pathname = usePathname();
   const { profile, fetchProfile, signOut } = useProfileStore();
   const { sidebarOpen, setSidebar } = useUiStore();
+  const zone = profile?.zone || 'all';
 
   useEffect(() => {
     fetchProfile();
@@ -68,7 +70,7 @@ export default function Sidebar() {
             <Image src="/ma-cherie-logo.jpg" alt="Ma Cherie" width={44} height={44} className="object-contain rounded-2xl shrink-0" />
             <div className="min-w-0">
               <h1 className="text-lg sm:text-xl font-semibold text-white truncate">Ma Cherie</h1>
-              <p className="text-[10px] text-[#C8A77E] tracking-widest">COFFEE & MORE</p>
+              <p className="text-[10px] text-[#C8A77E] tracking-widest">{zoneLabel(zone).toUpperCase()}</p>
             </div>
           </Link>
           <button
@@ -105,7 +107,7 @@ export default function Sidebar() {
             </div>
             <div className="min-w-0">
               <p className="font-semibold text-white truncate">{profile?.name || 'Сотрудник'}</p>
-              <p className="text-xs text-[#C8A77E] truncate">{profile?.position || 'Смена'}</p>
+              <p className="text-xs text-[#C8A77E] truncate">{zoneLabel(zone)}</p>
             </div>
           </div>
           <button
