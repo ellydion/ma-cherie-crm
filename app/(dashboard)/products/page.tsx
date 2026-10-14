@@ -3,35 +3,20 @@
 import { useEffect, useState } from 'react';
 import { Plus, Pencil } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
-import { useProfileStore } from '@/lib/store/profileStore';
+import { useZone } from '@/lib/useZone';
 import { productZone, zoneLabel } from '@/lib/zone';
 
-type Product = {
-  id?: string;
-  name: string;
-  price: number;
-  category: string;
-  unit: string;
-  section: string;
-  track_stock: boolean;
-};
+type Product = { id?: string; name: string; price: number; category: string; unit: string; section: string; track_stock: boolean };
 
 const CATS = [
-  { id: 'all', label: 'Все' },
-  { id: 'coffee', label: 'Кофе' },
-  { id: 'nitro', label: 'Нитро' },
-  { id: 'asu', label: 'Асу / Айс' },
-  { id: 'kitchen', label: 'Кухня' },
-  { id: 'drinks', label: 'Напитки' },
-  { id: 'desserts', label: 'Десерты' },
+  { id: 'all', label: 'Все' }, { id: 'coffee', label: 'Кофе' }, { id: 'nitro', label: 'Нитро' },
+  { id: 'asu', label: 'Асу / Айс' }, { id: 'kitchen', label: 'Кухня' }, { id: 'drinks', label: 'Напитки' }, { id: 'desserts', label: 'Десерты' },
 ];
 
 const empty: Product = { name: '', price: 0, category: 'coffee', unit: 'шт', section: 'coffee', track_stock: false };
 
 export default function ProductsPage() {
-  const profile = useProfileStore((s) => s.profile);
-  const fetchProfile = useProfileStore((s) => s.fetchProfile);
-  const zone = profile?.zone || 'all';
+  const { zone } = useZone();
   const [items, setItems] = useState<Product[]>([]);
   const [cat, setCat] = useState('all');
   const [search, setSearch] = useState('');
@@ -46,12 +31,11 @@ export default function ProductsPage() {
     else setItems((data || []) as Product[]);
   };
 
-  useEffect(() => { fetchProfile(); load(); }, [fetchProfile]);
+  useEffect(() => { load(); }, []);
 
   const filtered = items.filter((p) => {
     if (zone !== 'all' && productZone(p) !== zone) return false;
-    const okCat = cat === 'all' || p.category === cat;
-    return okCat && p.name.toLowerCase().includes(search.toLowerCase());
+    return (cat === 'all' || p.category === cat) && p.name.toLowerCase().includes(search.toLowerCase());
   });
 
   const openNew = () => {
@@ -66,17 +50,8 @@ export default function ProductsPage() {
     setSaving(true);
     setError('');
     const section = form.category === 'kitchen' || form.category === 'desserts' ? 'kitchen' : 'coffee';
-    const payload = {
-      name: form.name.trim(),
-      price: Number(form.price) || 0,
-      category: form.category,
-      unit: form.unit || 'шт',
-      section,
-      track_stock: !!form.track_stock,
-    };
-    const { error: err } = form.id
-      ? await supabase.from('products').update(payload).eq('id', form.id)
-      : await supabase.from('products').insert([payload]);
+    const payload = { name: form.name.trim(), price: Number(form.price) || 0, category: form.category, unit: form.unit || 'шт', section, track_stock: !!form.track_stock };
+    const { error: err } = form.id ? await supabase.from('products').update(payload).eq('id', form.id) : await supabase.from('products').insert([payload]);
     setSaving(false);
     if (err) { setError(err.message); return; }
     setOpen(false);
@@ -90,9 +65,7 @@ export default function ProductsPage() {
           <h1 className="text-2xl sm:text-3xl lg:text-4xl font-semibold">Товары · {zoneLabel(zone)}</h1>
           <p className="text-[#C8A77E] text-sm sm:text-base">То, что продаётся на кассе этой зоны</p>
         </div>
-        <button type="button" onClick={openNew} className="btn-primary px-5 py-3 flex items-center justify-center gap-2 w-full sm:w-auto">
-          <Plus className="w-5 h-5" /> Добавить товар
-        </button>
+        <button type="button" onClick={openNew} className="btn-primary px-5 py-3 flex items-center justify-center gap-2 w-full sm:w-auto"><Plus className="w-5 h-5" /> Добавить товар</button>
       </div>
       <div className="flex gap-2 flex-wrap mb-4">
         {CATS.map((c) => (
