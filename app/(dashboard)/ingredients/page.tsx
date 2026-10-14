@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Check, Pencil, Plus, Trash2, X } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
-import { useProfileStore } from '@/lib/store/profileStore';
+import { useZone } from '@/lib/useZone';
 import { zoneLabel } from '@/lib/zone';
 
 type Ing = {
@@ -28,9 +28,7 @@ type FormState = {
 const emptyForm: FormState = { name: '', unit: 'кг', quantity: 0, min_threshold: 5, section: 'coffee', cost_price: 0 };
 
 export default function IngredientsPage() {
-  const profile = useProfileStore((s) => s.profile);
-  const fetchProfile = useProfileStore((s) => s.fetchProfile);
-  const zone = profile?.zone || 'all';
+  const { zone } = useZone();
   const [items, setItems] = useState<Ing[]>([]);
   const [tab, setTab] = useState<'all' | 'coffee' | 'kitchen'>('all');
   const [search, setSearch] = useState('');
@@ -50,7 +48,7 @@ export default function IngredientsPage() {
     setItems((data || []) as Ing[]);
   };
 
-  useEffect(() => { fetchProfile(); load(); }, [fetchProfile]);
+  useEffect(() => { load(); }, []);
   useEffect(() => { if (zone !== 'all') setTab(zone); }, [zone]);
 
   const visible = useMemo(() => {
@@ -143,7 +141,7 @@ export default function IngredientsPage() {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
         <div>
           <h1 className="text-3xl md:text-4xl font-semibold tracking-tight text-white">Ингредиенты · {zoneLabel(zone)}</h1>
-          <p className="text-[#C8A77E] mt-1">Только своя зона. Название можно менять в строке.</p>
+          <p className="text-[#C8A77E] mt-1">Зона переключается кнопками в меню.</p>
         </div>
         <button onClick={openCreate} className="btn-primary flex items-center justify-center gap-2 px-6 py-3"><Plus className="w-5 h-5" /> Добавить</button>
       </div>
