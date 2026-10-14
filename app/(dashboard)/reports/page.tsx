@@ -3,22 +3,16 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase/client';
 import { downloadXlsx } from '@/lib/excel';
-import { useProfileStore } from '@/lib/store/profileStore';
-import { ProductZone, Zone, productZone, zoneLabel } from '@/lib/zone';
+import { useZone } from '@/lib/useZone';
+import { productZone, zoneLabel } from '@/lib/zone';
 
 type DayPoint = { key: string; label: string; sales: number; cash: number; transfer: number; orders: number; cost: number; net: number };
 type Range = 1 | 3 | 7 | 14 | 30;
 type Sold = { name: string; qty: number; sum: number };
 type Line = { name: string; qty: number; price: number; cost: number };
 type OrderRow = {
-  id: string;
-  created_at: string;
-  total: number;
-  cost: number;
-  net: number;
-  payment_method: string | null;
-  table_number: string | null;
-  items: Line[];
+  id: string; created_at: string; total: number; cost: number; net: number;
+  payment_method: string | null; table_number: string | null; items: Line[];
 };
 
 function localDayKey(input: Date | string) {
@@ -27,19 +21,13 @@ function localDayKey(input: Date | string) {
 }
 
 export default function ReportsPage() {
-  const profile = useProfileStore((s) => s.profile);
-  const fetchProfile = useProfileStore((s) => s.fetchProfile);
-  const locked = profile?.zone && profile.zone !== 'all' ? profile.zone : null;
-  const [view, setView] = useState<ProductZone>('coffee');
-  const zone: ProductZone = locked || view;
+  const { zone } = useZone();
   const [days, setDays] = useState<Range>(1);
   const [points, setPoints] = useState<DayPoint[]>([]);
   const [updated, setUpdated] = useState('');
   const [top, setTop] = useState<Sold[]>([]);
   const [ordersByDay, setOrdersByDay] = useState<Record<string, OrderRow[]>>({});
   const [selected, setSelected] = useState<string | null>(null);
-
-  useEffect(() => { fetchProfile(); }, [fetchProfile]);
 
   useEffect(() => {
     let alive = true;
@@ -60,7 +48,6 @@ export default function ReportsPage() {
       const { data: items } = ids.length
         ? await supabase.from('order_items').select('order_id, product_id, product_name, quantity, price').in('order_id', ids)
         : { data: [] as any[] };
-
       if (!alive) return;
 
       const zones = new Map((products || []).map((p: any) => [p.id, productZone(p)]));
@@ -68,8 +55,7 @@ export default function ReportsPage() {
       const costByProduct = new Map((products || []).map((p: any) => [p.id, Number(p.cost_price || 0)]));
       const recipeCost = new Map<string, number>();
       (recipes || []).forEach((r: any) => {
-        const add = Number(r.quantity) * (costByIng.get(r.ingredient_id) || 0);
-        recipeCost.set(r.product_id, (recipeCost.get(r.product_id) || 0) + add);
+        recipeCost.set(r.product_id, (recipeCost.get(r.product_id) || 0) + Number(r.quantity) * (costByIng.get(r.ingredient_id) || 0));
       });
       const unitCost = (productId: string | null) => {
         if (!productId) return 0;
@@ -94,7 +80,7 @@ export default function ReportsPage() {
         const lineSum = qty * Number(row.price);
         const z = zones.get(row.product_id) || productZone({ name: row.product_name });
         allSumByOrder.set(row.order_id, (allSumByOrder.get(row.order_id) || 0) + lineSum);
-        if (z !== zone) return;
+        if (zone !== 'all' && z !== zone) return;
         zoneSumByOrder.set(row.order_id, (zoneSumByOrder.get(row.order_id) || 0) + lineSum);
         const cost = unitCost(row.product_id) * qty;
         const arr = itemsByOrder.get(row.order_id) || [];
@@ -119,24 +105,12 @@ export default function ReportsPage() {
         const net = total - cost;
         const row = map.get(key);
         if (row) {
-          row.sales += total;
-          row.cost += cost;
-          row.net += net;
-          row.orders += 1;
+          row.sales += total; row.cost += cost; row.net += net; row.orders += 1;
           if (o.payment_method === 'cash') row.cash += total;
           if (o.payment_method === 'transfer') row.transfer += total;
         }
         if (!byDay[key]) byDay[key] = [];
-        byDay[key].push({
-          id: o.id,
-          created_at: o.created_at,
-          total,
-          cost,
-          net,
-          payment_method: o.payment_method,
-          table_number: o.table_number,
-          items: itemsByOrder.get(o.id) || [],
-        });
+        byDay[key].push({ id: o.id, created_at: o.created_at, total, cost, net, payment_method: o.payment_method, table_number: o.table_number, items: itemsByOrder.get(o.id) || [] });
       });
 
       const pts = Array.from(map.values());
@@ -156,11 +130,7 @@ export default function ReportsPage() {
     load();
     const t = setInterval(load, 15000);
     window.addEventListener('focus', load);
-    return () => {
-      alive = false;
-      clearInterval(t);
-      window.removeEventListener('focus', load);
-    };
+    return () => { alive = false; clearInterval(t); window.removeEventListener('focus', load); };
   }, [days, zone]);
 
   const sales = points.reduce((s, p) => s + p.sales, 0);
@@ -185,9 +155,6 @@ export default function ReportsPage() {
           <p className="text-[#C8A77E] text-sm mt-1">Обновляется каждые 15 сек{updated ? ` · ${updated}` : ''}</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          {!locked && (['coffee', 'kitchen'] as Zone[]).map((z) => (
-            <button key={z} type="button" onClick={() => setView(z as ProductZone)} className={`px-4 py-3 rounded-3xl ${view === z ? 'bg-[#C8A77E] text-[#3F2A1F]' : 'bg-[#3F2A1F]'}`}>{zoneLabel(z)}</button>
-          ))}
           {([1, 3, 7, 14, 30] as Range[]).map((n) => (
             <button key={n} type="button" onClick={() => setDays(n)} className={`px-4 py-3 rounded-3xl ${days === n ? 'bg-[#C8A77E] text-[#3F2A1F]' : 'bg-[#3F2A1F]'}`}>{n === 1 ? 'Сегодня' : `${n} дн.`}</button>
           ))}
