@@ -4,20 +4,15 @@ import { useEffect, useState } from 'react';
 import { Plus, Minus, Trash2 } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
 import { useShiftStore } from '@/lib/store/shiftStore';
-import { useProfileStore } from '@/lib/store/profileStore';
+import { useZone } from '@/lib/useZone';
 import { productZone, zoneLabel } from '@/lib/zone';
 
 type Product = { id: string; name: string; price: number; category: string; section?: string; track_stock?: boolean };
 type Line = Product & { quantity: number };
 
 const CATS = [
-  ['all', 'Все'],
-  ['coffee', 'Кофе'],
-  ['nitro', 'Нитро'],
-  ['asu', 'Асу'],
-  ['kitchen', 'Кухня'],
-  ['drinks', 'Напитки'],
-  ['desserts', 'Десерты'],
+  ['all', 'Все'], ['coffee', 'Кофе'], ['nitro', 'Нитро'], ['asu', 'Асу'],
+  ['kitchen', 'Кухня'], ['drinks', 'Напитки'], ['desserts', 'Десерты'],
 ] as const;
 
 export default function PosPage() {
@@ -29,31 +24,21 @@ export default function PosPage() {
   const [loadError, setLoadError] = useState('');
   const currentShift = useShiftStore((s) => s.current);
   const refreshShift = useShiftStore((s) => s.refresh);
-  const profile = useProfileStore((s) => s.profile);
-  const fetchProfile = useProfileStore((s) => s.fetchProfile);
-  const zone = profile?.zone || 'all';
+  const { zone } = useZone();
   const [customers, setCustomers] = useState<any[]>([]);
   const [customerId, setCustomerId] = useState('');
 
   useEffect(() => {
-    fetchProfile();
     const load = async () => {
-      const { data, error } = await supabase
-        .from('products')
-        .select('id, name, price, category, section, track_stock')
-        .order('name');
-      if (error) {
-        setLoadError(error.message);
-        setProducts([]);
-        return;
-      }
+      const { data, error } = await supabase.from('products').select('id, name, price, category, section, track_stock').order('name');
+      if (error) { setLoadError(error.message); setProducts([]); return; }
       setLoadError('');
       setProducts(data || []);
     };
     load();
     refreshShift();
     supabase.from('customers').select('id, name, loyalty_level, points, total_spent').order('name').then(({ data }) => setCustomers(data || []));
-  }, [refreshShift, fetchProfile]);
+  }, [refreshShift]);
 
   const zoneProducts = products.filter((p) => zone === 'all' || productZone(p) === zone);
   const list = zoneProducts.filter((p) => (cat === 'all' || p.category === cat) && p.name.toLowerCase().includes(search.toLowerCase()));
@@ -106,13 +91,8 @@ export default function PosPage() {
       order = retry.data;
       error = retry.error;
     }
-    if (error || !order) {
-      alert('Не удалось сохранить заказ');
-      return;
-    }
-    await supabase.from('order_items').insert(lines.map((l) => ({
-      order_id: order.id, product_id: l.id, product_name: l.name, quantity: l.quantity, price: l.price,
-    })));
+    if (error || !order) { alert('Не удалось сохранить заказ'); return; }
+    await supabase.from('order_items').insert(lines.map((l) => ({ order_id: order.id, product_id: l.id, product_name: l.name, quantity: l.quantity, price: l.price })));
     for (const line of lines) await writeOff(line);
     if (guest) {
       await supabase.from('customers').update({
@@ -135,9 +115,7 @@ export default function PosPage() {
       </div>
       <div className="flex gap-2 mb-4 flex-wrap">
         {CATS.map(([id, label]) => (
-          <button key={id} type="button" onClick={() => setCat(id)} className={`px-4 py-2 rounded-2xl text-sm ${cat === id ? 'bg-[#C8A77E] text-[#3F2A1F]' : 'bg-[#3F2A1F]'}`}>
-            {label}
-          </button>
+          <button key={id} type="button" onClick={() => setCat(id)} className={`px-4 py-2 rounded-2xl text-sm ${cat === id ? 'bg-[#C8A77E] text-[#3F2A1F]' : 'bg-[#3F2A1F]'}`}>{label}</button>
         ))}
       </div>
       <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Поиск товара" className="bg-[#3F2A1F] border border-[#5C4030] rounded-2xl px-4 py-3 mb-4 w-full" />
