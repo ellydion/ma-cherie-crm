@@ -1,8 +1,10 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { Pencil, Plus, Trash2, X } from 'lucide-react';
+import { Loader2, Pencil, Plus, Trash2, X } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
+import { toast } from '@/lib/store/toastStore';
+import { friendlyError } from '@/lib/errors';
 
 type Product = {
   id: string; name: string; category?: string; section?: string;
@@ -64,24 +66,28 @@ export default function TechcardsPage() {
   const [newPrice, setNewPrice] = useState(0);
   const [newCost, setNewCost] = useState(0);
   const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState('');
 
-  const loadMeta = async () => {
+  const loadMeta = async (): Promise<Product[]> => {
+    let list: Product[];
     const { data: p, error: perr } = await supabase
       .from('products')
       .select('id, name, category, section, track_stock, is_active, hidden_from_techcards, price, cost_price')
       .order('name');
     if (perr) {
       const fallback = await supabase.from('products').select('id, name, category, section, track_stock, price').order('name');
-      setProducts((fallback.data || []).map((x: Product) => ({ ...x, hidden_from_techcards: false, cost_price: 0 })));
-    } else setProducts((p || []) as Product[]);
+      list = (fallback.data || []).map((x: Product) => ({ ...x, hidden_from_techcards: false, cost_price: 0 }));
+    } else list = (p || []) as Product[];
+    setProducts(list);
     const { data: i } = await supabase.from('ingredients').select('id, name, unit').order('name');
     setIngs(i || []);
+    return list;
   };
 
-  const openProduct = async (productId: string) => {
+  const openProduct = async (productId: string, list: Product[] = products) => {
     setCurrent(productId);
     setEditId(null);
-    const item = products.find((x) => x.id === productId);
+    const item = list.find((x) => x.id === productId);
     setSell(Number(item?.price) || 0);
     setCost(Number(item?.cost_price) || 0);
     setRenameValue(item?.name || '');
@@ -106,35 +112,51 @@ export default function TechcardsPage() {
     if (!current || !pick) return;
     const ing = ings.find((i) => i.id === pick);
     const { error: insErr } = await supabase.from('product_ingredients').insert([{ product_id: current, ingredient_id: pick, quantity: qty, unit: ing?.unit || 'шт' }]);
-    if (insErr) setError(insErr.message);
+    if (insErr) toast.error(friendlyError(insErr, 'Не удалось добавить ингредиент'));
+    else toast.success('Ингредиент добавлен в техкарту');
     openProduct(current);
   };
   const saveQty = async (id?: string) => {
     if (!id) return;
-    await supabase.from('product_ingredients').update({ quantity: editQty }).eq('id', id);
+    const { error: upErr } = await supabase.from('product_ingredients').update({ quantity: editQty }).eq('id', id).select('id').single();
+    if (upErr) { toast.error(friendlyError(upErr)); return; }
+    toast.success('Количество сохранено');
     setEditId(null); openProduct(current);
   };
   const removeLine = async (id?: string) => {
     if (!id) return;
-    await supabase.from('product_ingredients').delete().eq('id', id);
+    const { data, error: delErr } = await supabase.from('product_ingredients').delete().eq('id', id).select('id');
+    if (delErr) toast.error(friendlyError(delErr, 'Не удалось убрать строку'));
+    else if (!data?.length) toast.error('Удалять строки рецепта может только администратор.');
+    else toast.success('Строка рецепта убрана');
     openProduct(current);
   };
   const savePrices = async () => {
     if (!current) return;
     setSavingPrice(true);
-    const { error: upErr } = await supabase.from('products').update({ price: Number(sell) || 0, cost_price: Number(cost) || 0 }).eq('id', current);
+    const { error: upErr } = await supabase.from('products').update({ price: Number(sell) || 0, cost_price: Number(cost) || 0 }).eq('id', current).select('id').single();
     setSavingPrice(false);
-    if (upErr) { setError(upErr.message); return; }
+    if (upErr) { const t = friendlyError(upErr); setError(t); toast.error(t); return; }
+    setError('');
+    toast.success('Цена сохранена');
     await loadMeta();
   };
   const hideProduct = async (id: string) => {
     const { error: hideErr } = await supabase.from('products').update({ hidden_from_techcards: true }).eq('id', id);
-    if (hideErr) { setError('ALTER TABLE products ADD COLUMN IF NOT EXISTS hidden_from_techcards BOOLEAN NOT NULL DEFAULT false;'); return; }
+    if (hideErr) {
+      // Чаще всего значит, что в базе нет колонки hidden_from_techcards (см. sql/11). Текст для администратора в консоли.
+      console.error('hide product failed', hideErr);
+      toast.error('Не получилось убрать техкарту. Сообщи администратору.');
+      return;
+    }
     if (current === id) { setCurrent(''); setLines([]); }
+    toast.success('Техкарта убрана. Вернуть можно через «Показать убранные».');
     await loadMeta();
   };
   const restoreProduct = async (id: string) => {
-    await supabase.from('products').update({ hidden_from_techcards: false }).eq('id', id);
+    const { error: upErr } = await supabase.from('products').update({ hidden_from_techcards: false }).eq('id', id);
+    if (upErr) { toast.error(friendlyError(upErr)); return; }
+    toast.success('Техкарта возвращена');
     await loadMeta();
   };
 
@@ -143,17 +165,20 @@ export default function TechcardsPage() {
     const name = renameValue.trim();
     if (!name) { setError('Название обязательно'); return; }
     setRenaming(true);
-    const { error: upErr } = await supabase.from('products').update({ name }).eq('id', current);
+    const { error: upErr } = await supabase.from('products').update({ name }).eq('id', current).select('id').single();
     setRenaming(false);
-    if (upErr) { setError(upErr.message); return; }
+    if (upErr) { const t = friendlyError(upErr); setError(t); toast.error(t); return; }
+    setError('');
+    toast.success(`Название сохранено: «${name}»`);
     await loadMeta();
   };
 
   const createCard = async () => {
     const name = newName.trim();
-    if (!name) { setError('Название обязательно'); return; }
+    if (creating) return;
+    if (!name) { setCreateError('Название обязательно'); return; }
     setCreating(true);
-    setError('');
+    setCreateError('');
     const payload = {
       name,
       price: Number(newPrice) || 0,
@@ -165,15 +190,16 @@ export default function TechcardsPage() {
     };
     const { data, error: insErr } = await supabase.from('products').insert([payload]).select('id').single();
     setCreating(false);
-    if (insErr) { setError(insErr.message); return; }
+    if (insErr) { setCreateError(friendlyError(insErr)); return; }
+    toast.success(`Техкарта «${name}» создана`);
     setCreateOpen(false);
     setNewName('');
     setNewPrice(0);
     setNewCost(0);
-    await loadMeta();
+    const list = await loadMeta();
     if (data?.id) {
       setZone(newZone);
-      setTimeout(() => openProduct(data.id), 50);
+      openProduct(data.id, list);
     }
   };
 
@@ -188,7 +214,7 @@ export default function TechcardsPage() {
           <label className="flex items-center gap-2 text-sm text-[#C8A77E]">
             <input type="checkbox" checked={showHidden} onChange={(e) => setShowHidden(e.target.checked)} /> Показать убранные
           </label>
-          <button type="button" onClick={() => { setError(''); setCreateOpen(true); }} className="btn-primary flex items-center justify-center gap-2 px-5 py-3">
+          <button type="button" onClick={() => { setError(''); setCreateError(''); setCreateOpen(true); }} className="btn-primary flex items-center justify-center gap-2 px-5 py-3">
             <Plus className="w-5 h-5" /> Новая техкарта
           </button>
         </div>
@@ -232,8 +258,8 @@ export default function TechcardsPage() {
               <label className="text-sm text-[#C8A77E] block">Название
                 <div className="mt-1 flex gap-2">
                   <input value={renameValue} onChange={(e) => setRenameValue(e.target.value)} className="flex-1 bg-[#2C241E] border border-[#5C4030] rounded-2xl px-4 py-3 text-white" />
-                  <button type="button" onClick={saveName} disabled={renaming} className="btn-primary px-4" title="Сохранить название">
-                    <Pencil className="w-4 h-4" />
+                  <button type="button" onClick={saveName} disabled={renaming} className="btn-primary px-4 disabled:opacity-60" title="Сохранить название" aria-label="Сохранить название">
+                    {renaming ? <Loader2 className="w-4 h-4 animate-spin" /> : <Pencil className="w-4 h-4" />}
                   </button>
                 </div>
               </label>
@@ -270,7 +296,7 @@ export default function TechcardsPage() {
                     ) : (
                       <button type="button" className="font-mono text-[#C8A77E] text-sm" onClick={() => { setEditId(l.id || null); setEditQty(l.quantity); }}>{l.quantity} {l.unit}</button>
                     )}
-                    <button type="button" onClick={() => removeLine(l.id)} className="text-red-400 shrink-0"><Trash2 className="w-4 h-4" /></button>
+                    <button type="button" onClick={() => removeLine(l.id)} aria-label={`Убрать ${l.name}`} title="Убрать из рецепта" className="text-red-400 shrink-0"><Trash2 className="w-4 h-4" /></button>
                   </div>
                 ))}
               </div>
@@ -281,7 +307,7 @@ export default function TechcardsPage() {
                 </select>
                 <div className="flex gap-2">
                   <input type="number" step="0.001" value={qty} onChange={(e) => setQty(Number(e.target.value))} className="w-28 bg-[#2C241E] border border-[#5C4030] rounded-2xl px-3 py-3 text-white" />
-                  <button type="button" onClick={addLine} className="btn-primary px-4">+</button>
+                  <button type="button" onClick={addLine} disabled={!pick} aria-label="Добавить ингредиент" className="btn-primary px-4 disabled:opacity-50">+</button>
                 </div>
               </div>
             </>
@@ -294,7 +320,7 @@ export default function TechcardsPage() {
           <div className="bg-[#3F2A1F] rounded-3xl p-5 sm:p-6 w-full max-w-md space-y-3 relative">
             <button type="button" onClick={() => setCreateOpen(false)} className="absolute right-4 top-4 text-gray-400"><X /></button>
             <h2 className="text-xl sm:text-2xl text-white pr-8">Новая техкарта</h2>
-            <input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Название" className="w-full bg-[#2C241E] border border-[#5C4030] rounded-2xl px-4 py-3 text-white" />
+            <input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Название" aria-label="Название" className="w-full bg-[#2C241E] border border-[#5C4030] rounded-2xl px-4 py-3 text-white" />
             <select value={newZone} onChange={(e) => setNewZone(e.target.value as Zone)} className="w-full bg-[#2C241E] border border-[#5C4030] rounded-2xl px-4 py-3 text-white">
               <option value="coffee">Кофейня</option>
               <option value="kitchen">Кухня</option>
@@ -308,9 +334,10 @@ export default function TechcardsPage() {
                 <input type="number" step="0.01" value={newCost} onChange={(e) => setNewCost(Number(e.target.value))} className="mt-1 w-full bg-[#2C241E] border border-[#5C4030] rounded-2xl px-4 py-3 text-white" />
               </label>
             </div>
+            {createError && <p role="alert" className="rounded-2xl bg-red-900/40 border border-red-700 text-red-100 px-4 py-3 text-sm">{createError}</p>}
             <div className="flex gap-3 pt-2">
-              <button type="button" onClick={() => setCreateOpen(false)} className="flex-1 py-3 rounded-2xl border border-[#5C4030] text-white">Отмена</button>
-              <button type="button" onClick={createCard} disabled={creating} className="flex-1 btn-primary py-3">{creating ? 'Сохранение…' : 'Создать'}</button>
+              <button type="button" onClick={() => setCreateOpen(false)} disabled={creating} className="flex-1 py-3 rounded-2xl border border-[#5C4030] text-white disabled:opacity-50">Отмена</button>
+              <button type="button" onClick={createCard} disabled={creating} className="flex-1 btn-primary py-3 flex items-center justify-center gap-2 disabled:opacity-60">{creating ? <><Loader2 className="w-4 h-4 animate-spin" /> Сохранение…</> : 'Создать'}</button>
             </div>
           </div>
         </div>
