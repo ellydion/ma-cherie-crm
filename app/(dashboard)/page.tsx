@@ -6,6 +6,7 @@ import { Coffee, Utensils } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
 import { useZone } from '@/lib/useZone';
 import { productZone, zoneLabel } from '@/lib/zone';
+import { bishkekDayStart, formatTime } from '@/lib/time';
 
 export default function DashboardPage() {
   const { zone, isAdmin } = useZone();
@@ -19,8 +20,8 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
 
   const load = async () => {
-    const start = new Date();
-    start.setHours(0, 0, 0, 0);
+    // «Сегодня» считаем от 00:00 по Бишкеку, а не по часовому поясу устройства.
+    const start = bishkekDayStart(0);
     const { data: orders } = await supabase
       .from('orders')
       .select('id, total, created_at, payment_method, table_number')
@@ -124,7 +125,7 @@ export default function DashboardPage() {
             <table className="w-full"><thead><tr className="border-t border-[#5C4030] text-left"><th className="p-4">Время</th><th className="p-4">Стол</th><th className="p-4">Сумма</th></tr></thead>
               <tbody>{recent.map((o) => (
                 <tr key={o.id} className="border-t border-[#5C4030]">
-                  <td className="p-4 text-gray-400">{new Date(o.created_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}</td>
+                  <td className="p-4 text-gray-400">{formatTime(o.created_at)}</td>
                   <td className="p-4">{o.table_number || '—'}</td>
                   <td className="p-4 font-mono text-[#C8A77E]">{o.zoneTotal} с</td>
                 </tr>

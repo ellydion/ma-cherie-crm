@@ -5,6 +5,7 @@ import { supabase } from '@/lib/supabase/client';
 import { downloadXlsx } from '@/lib/excel';
 import { useZone } from '@/lib/useZone';
 import { productZone, zoneLabel } from '@/lib/zone';
+import { addDays, bishkekDayKey, bishkekDayLabel, bishkekDayStart, formatTime } from '@/lib/time';
 
 type DayPoint = { key: string; label: string; sales: number; cash: number; transfer: number; orders: number; cost: number; net: number };
 type Range = 1 | 3 | 7 | 14 | 30;
@@ -15,10 +16,8 @@ type OrderRow = {
   payment_method: string | null; table_number: string | null; items: Line[];
 };
 
-function localDayKey(input: Date | string) {
-  const d = typeof input === 'string' ? new Date(input) : new Date(input);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
+// Дни отчёта считаются по Бишкеку (UTC+6), независимо от часового пояса устройства.
+const localDayKey = bishkekDayKey;
 
 export default function ReportsPage() {
   const { zone } = useZone();
@@ -32,9 +31,7 @@ export default function ReportsPage() {
   useEffect(() => {
     let alive = true;
     const load = async () => {
-      const from = new Date();
-      from.setHours(0, 0, 0, 0);
-      from.setDate(from.getDate() - (days - 1));
+      const from = bishkekDayStart(days - 1);
 
       const [{ data: orders }, { data: products }, { data: recipes }, { data: ings }] = await Promise.all([
         supabase.from('orders').select('id, total, payment_method, created_at, table_number').gte('created_at', from.toISOString()).order('created_at', { ascending: false }),
@@ -65,9 +62,9 @@ export default function ReportsPage() {
 
       const map = new Map<string, DayPoint>();
       for (let i = 0; i < days; i++) {
-        const d = new Date(from.getFullYear(), from.getMonth(), from.getDate() + i);
+        const d = addDays(from, i);
         const key = localDayKey(d);
-        map.set(key, { key, label: `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}`, sales: 0, cash: 0, transfer: 0, orders: 0, cost: 0, net: 0 });
+        map.set(key, { key, label: bishkekDayLabel(d), sales: 0, cash: 0, transfer: 0, orders: 0, cost: 0, net: 0 });
       }
 
       const itemsByOrder = new Map<string, Line[]>();
@@ -124,7 +121,7 @@ export default function ReportsPage() {
         if (byDay[today]?.length) return today;
         return richest || pts[pts.length - 1]?.key || null;
       });
-      setUpdated(new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+      setUpdated(formatTime(new Date(), true));
     };
 
     load();
@@ -213,7 +210,7 @@ export default function ReportsPage() {
                 <div key={o.id} className="border-t border-[#5C4030] px-6 py-4">
                   <div className="flex justify-between text-sm mb-2">
                     <span className="text-gray-400">
-                      {new Date(o.created_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
+                      {formatTime(o.created_at)}
                       {o.table_number ? ` · ${o.table_number}` : ''}
                       {o.payment_method === 'cash' ? ' · нал' : o.payment_method === 'transfer' ? ' · перевод' : ''}
                     </span>
