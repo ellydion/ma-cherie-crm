@@ -185,7 +185,8 @@ export default function ReportsPage() {
         <div className="flex items-end gap-1 h-56">
           {points.map((p) => (
             <button key={p.key} type="button" onClick={() => setSelected(p.key)} className="flex-1 flex flex-col items-center justify-end h-full">
-              <div className={`w-full rounded-t-lg ${p.key === selected ? 'bg-white' : p.key === best?.key ? 'bg-emerald-500' : 'bg-[#C8A77E]'}`} style={{ height: `${Math.round((p.sales / max) * 100)}%`, minHeight: p.sales ? 6 : 2 }} />
+              {p.sales > 0 && <span className={`text-[10px] mb-1 font-mono ${p.key === selected ? 'text-white' : 'text-gray-400'}`}>{p.sales}</span>}
+              <div className={`w-full max-w-[56px] rounded-t-lg ${p.key === selected ? 'bg-[#E8D3B5] ring-2 ring-white/70' : p.key === best?.key ? 'bg-emerald-500' : 'bg-[#C8A77E]'}`} style={{ height: `${Math.round((p.sales / max) * 85)}%`, minHeight: p.sales ? 6 : 2 }} />
               <span className={`text-[10px] mt-1 ${p.key === selected ? 'text-white' : 'text-gray-400'}`}>{p.label}</span>
             </button>
           ))}
