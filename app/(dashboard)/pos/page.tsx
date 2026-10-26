@@ -5,7 +5,7 @@ import { Plus, Minus, Trash2 } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
 import { useShiftStore } from '@/lib/store/shiftStore';
 import { useZone } from '@/lib/useZone';
-import { productZone, zoneLabel } from '@/lib/zone';
+import { visibleInZone, zoneLabel } from '@/lib/zone';
 
 type Product = { id: string; name: string; price: number; category: string; section?: string; track_stock?: boolean };
 type Line = Product & { quantity: number };
@@ -30,7 +30,12 @@ export default function PosPage() {
 
   useEffect(() => {
     const load = async () => {
-      const { data, error } = await supabase.from('products').select('id, name, price, category, section, track_stock').order('name');
+      const { data, error } = await supabase.from('products').select('id, name, price, category, section, track_stock')
+        // Скрытые («Убрать» в техкартах) и неактивные товары не показываем в кассе.
+        // not.is.* оставляет NULL, чтобы старые строки без флагов не пропали.
+        .not('is_active', 'is', false)
+        .not('hidden_from_techcards', 'is', true)
+        .order('name');
       if (error) { setLoadError(error.message); setProducts([]); return; }
       setLoadError('');
       setProducts(data || []);
@@ -40,7 +45,7 @@ export default function PosPage() {
     supabase.from('customers').select('id, name, loyalty_level, points, total_spent').order('name').then(({ data }) => setCustomers(data || []));
   }, [refreshShift]);
 
-  const zoneProducts = products.filter((p) => zone === 'all' || productZone(p) === zone);
+  const zoneProducts = products.filter((p) => visibleInZone(p, zone));
   const list = zoneProducts.filter((p) => (cat === 'all' || p.category === cat) && p.name.toLowerCase().includes(search.toLowerCase()));
   const subtotal = lines.reduce((s, l) => s + l.price * l.quantity, 0);
   const guest = customers.find((c) => c.id === customerId);

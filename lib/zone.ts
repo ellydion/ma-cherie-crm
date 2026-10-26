@@ -18,6 +18,18 @@ export function productZone(p: { section?: string | null; category?: string | nu
   return 'coffee';
 }
 
+// Видимость товара в кассе по зоне. Десерты продаются и на кухне, и в кофейне,
+// поэтому в кассе они видны в обеих зонах. В отчётах выручка по десертам
+// по-прежнему считается кухне (productZone не меняется).
+export function visibleInZone(
+  p: { section?: string | null; category?: string | null; name?: string | null },
+  zone: Zone,
+): boolean {
+  if (zone === 'all') return true;
+  if ((p.category || '').toLowerCase() === 'desserts') return true;
+  return productZone(p) === zone;
+}
+
 export function zoneLabel(zone: Zone | ProductZone) {
   if (zone === 'kitchen') return 'Кухня';
   if (zone === 'coffee') return 'Кофейня';

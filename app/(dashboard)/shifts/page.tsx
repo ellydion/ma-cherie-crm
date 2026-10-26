@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase/client';
 import { useShiftStore } from '@/lib/store/shiftStore';
 import { downloadXlsx } from '@/lib/excel';
+import { formatDateTime } from '@/lib/time';
 
 type Row = {
   id: string;
@@ -79,7 +80,7 @@ export default function ShiftsPage() {
     if (current) { setMsg('Смена уже открыта'); return; }
     const id = await openShift();
     if (id) await seedChecks(id);
-    setMsg(id ? 'Смена открыта, чек-лист обновлён' : 'Не удалось открыть смену. Выполни SQL.');
+    setMsg(id ? 'Смена открыта, чек-лист обновлён' : 'Не удалось открыть смену. Попробуй ещё раз или сообщи администратору.');
     load();
   };
 
@@ -95,7 +96,7 @@ export default function ShiftsPage() {
   };
 
   const best = rows.filter((r) => r.ended_at).sort((a, b) => b.sales - a.sales)[0];
-  const fmt = (iso: string) => new Date(iso).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+  const fmt = (iso: string) => formatDateTime(iso);
   const phases = [
     { id: 'open', label: 'Открытие' },
     { id: 'day', label: 'В течение дня' },
@@ -126,7 +127,7 @@ export default function ShiftsPage() {
         <div className="card p-6 mb-8">
           <h2 className="text-2xl mb-1">Чек-лист баристы</h2>
           <p className="text-[#C8A77E] text-sm mb-4">Новый список на каждую открытую смену</p>
-          {checks.length === 0 && <p className="text-gray-400">Нет задач — запусти SQL чек-листа</p>}
+          {checks.length === 0 && <p className="text-gray-400">Задач на смену пока нет</p>}
           {phases.map((ph) => {
             const items = checks.filter((c) => c.task.phase === ph.id);
             if (!items.length) return null;

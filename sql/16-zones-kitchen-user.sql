@@ -1,5 +1,7 @@
 -- Zones + kitchen account. Run in Supabase SQL editor.
--- Password is set in the INSERT below. Change it after first login.
+-- Пароль НЕ хранится в репозитории. Перед запуском замените <ЗАДАЙТЕ_ПАРОЛЬ>
+-- в INSERT ниже на свой пароль (не коммитьте его). Скрипт создаёт пользователя
+-- только если его ещё нет; существующий пароль он не меняет.
 
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS zone TEXT NOT NULL DEFAULT 'all';
 
@@ -25,7 +27,7 @@ SELECT
   'authenticated',
   'authenticated',
   'kitchen@macherie.coffee',
-  crypt('123456789!', gen_salt('bf')),
+  crypt('<ЗАДАЙТЕ_ПАРОЛЬ>', gen_salt('bf')),
   now(),
   '{"provider":"email","providers":["email"]}'::jsonb,
   '{"name":"Кухня","position":"Кухня","role":"staff"}'::jsonb,

@@ -1,10 +1,12 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { Check, Pencil, Plus, Trash2, X } from 'lucide-react';
+import { Check, Loader2, Pencil, Plus, Trash2, X } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
 import { useZone } from '@/lib/useZone';
 import { zoneLabel } from '@/lib/zone';
+import { toast } from '@/lib/store/toastStore';
+import { friendlyError } from '@/lib/errors';
 
 type Ing = {
   id: string;
@@ -41,6 +43,8 @@ export default function IngredientsPage() {
   const [renameId, setRenameId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const [renaming, setRenaming] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [usage, setUsage] = useState<number | null>(null);
 
   const load = async () => {
     const { data, error: loadError } = await supabase.from('ingredients').select('*').order('name');
@@ -91,16 +95,20 @@ export default function IngredientsPage() {
     const same = items.find((i) => i.id !== item.id && i.name.trim().toLowerCase() === name.toLowerCase());
     if (same) { setError('«' + same.name + '» уже есть.'); return; }
     setRenaming(true);
-    const { error: saveError } = await supabase.from('ingredients').update({ name, updated_at: new Date().toISOString() }).eq('id', item.id);
+    const { error: saveError } = await supabase.from('ingredients').update({ name, updated_at: new Date().toISOString() }).eq('id', item.id).select('id').single();
     setRenaming(false);
-    if (saveError) { setError(saveError.message); return; }
+    if (saveError) { const t = friendlyError(saveError); setError(t); toast.error(t); return; }
     setRenameId(null);
+    toast.success(`Переименовано в «${name}»`);
     await load();
   };
 
   const save = async () => {
+    if (saving) return;
     const name = form.name.trim();
     if (!name) { setError('Название обязательно'); return; }
+    const same = items.find((i) => i.id !== editing?.id && i.name.trim().toLowerCase() === name.toLowerCase());
+    if (same) { setError('«' + same.name + '» уже есть. Измени его через карандаш.'); return; }
     setSaving(true);
     setError('');
     const payload = {
@@ -113,21 +121,42 @@ export default function IngredientsPage() {
       updated_at: new Date().toISOString(),
     };
     const query = editing
-      ? supabase.from('ingredients').update(payload).eq('id', editing.id)
-      : supabase.from('ingredients').insert([payload]);
+      ? supabase.from('ingredients').update(payload).eq('id', editing.id).select('id').single()
+      : supabase.from('ingredients').insert([payload]).select('id').single();
     const { error: saveError } = await query;
     setSaving(false);
-    if (saveError) { setError(saveError.message); return; }
+    if (saveError) { const t = friendlyError(saveError); setError(t); toast.error(t); return; }
+    toast.success(editing ? `Ингредиент «${name}» обновлён` : `Ингредиент «${name}» сохранён`);
     setOpen(false);
     setEditing(null);
+    setForm(emptyForm);
     await load();
   };
 
+  const askRemove = async (item: Ing) => {
+    setConfirmId(item.id);
+    setUsage(null);
+    const { count } = await supabase.from('product_ingredients').select('id', { count: 'exact', head: true }).eq('ingredient_id', item.id);
+    setUsage(count ?? 0);
+  };
+
   const remove = async (item: Ing) => {
+    if (deleting) return;
     setError('');
-    await supabase.from('product_ingredients').delete().eq('ingredient_id', item.id);
-    const { error: delError } = await supabase.from('ingredients').delete().eq('id', item.id);
-    if (delError) { setError(delError.message); setConfirmId(null); return; }
+    setDeleting(true);
+    const fail = (t: string) => { setError(t); toast.error(t); setDeleting(false); setConfirmId(null); };
+    // Удаление разрешено только администратору (RLS). Без прав Supabase молча удаляет 0 строк,
+    // поэтому просим вернуть удалённые строки и проверяем, что что-то действительно удалилось.
+    if (usage) {
+      const { data: links, error: linkError } = await supabase.from('product_ingredients').delete().eq('ingredient_id', item.id).select('id');
+      if (linkError) return fail(friendlyError(linkError, 'Не удалось удалить'));
+      if (!links?.length) return fail('Удалять может только администратор.');
+    }
+    const { data: deleted, error: delError } = await supabase.from('ingredients').delete().eq('id', item.id).select('id');
+    if (delError) return fail(friendlyError(delError, 'Не удалось удалить'));
+    if (!deleted?.length) return fail('Удалять может только администратор.');
+    toast.success(`Ингредиент «${item.name}» удалён`);
+    setDeleting(false);
     setConfirmId(null);
     await load();
   };
@@ -183,9 +212,9 @@ export default function IngredientsPage() {
                 <td className="p-4 text-[#C8A77E]">{item.section === 'kitchen' ? 'Кухня' : 'Кофейня'}</td>
                 <td className="p-4">
                   <div className="flex gap-2 justify-end">
-                    <button onClick={() => startRename(item)} className="px-3 py-2 rounded-xl bg-[#2C241E] border border-[#5C4030] text-[#C8A77E] text-xs">Имя</button>
-                    <button onClick={() => openEdit(item)} className="p-2 rounded-xl bg-[#2C241E] border border-[#5C4030] text-[#C8A77E]"><Pencil className="w-4 h-4" /></button>
-                    <button onClick={() => setConfirmId(item.id)} className="p-2 rounded-xl bg-[#2C241E] border border-[#5C4030] text-red-400"><Trash2 className="w-4 h-4" /></button>
+                    <button type="button" onClick={() => startRename(item)} className="px-3 py-2 rounded-xl bg-[#2C241E] border border-[#5C4030] text-[#C8A77E] text-xs">Переименовать</button>
+                    <button type="button" onClick={() => openEdit(item)} title="Изменить" aria-label={`Изменить ${item.name}`} className="p-2 rounded-xl bg-[#2C241E] border border-[#5C4030] text-[#C8A77E]"><Pencil className="w-4 h-4" /></button>
+                    <button type="button" onClick={() => askRemove(item)} title="Удалить" aria-label={`Удалить ${item.name}`} className="p-2 rounded-xl bg-[#2C241E] border border-[#5C4030] text-red-400"><Trash2 className="w-4 h-4" /></button>
                   </div>
                 </td>
               </tr>
@@ -196,10 +225,10 @@ export default function IngredientsPage() {
       {open && (
         <div className="fixed inset-0 bg-black/70 z-50 flex items-end md:items-center justify-center p-3">
           <div className="bg-[#3F2A1F] rounded-3xl p-6 w-full max-w-md space-y-3 relative">
-            <button onClick={() => setOpen(false)} className="absolute right-4 top-4 text-gray-400"><X /></button>
+            <button type="button" onClick={() => { if (!saving) setOpen(false); }} aria-label="Закрыть" className="absolute right-4 top-4 text-gray-400"><X /></button>
             <h2 className="text-2xl text-white pr-8">{editing ? 'Изменить ингредиент' : 'Новый ингредиент'}</h2>
-            <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Название" className="w-full bg-[#2C241E] border border-[#5C4030] rounded-2xl px-4 py-3 text-white" />
-            <input value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })} placeholder="кг / л / шт" className="w-full bg-[#2C241E] border border-[#5C4030] rounded-2xl px-4 py-3 text-white" />
+            <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Название" aria-label="Название" className="w-full bg-[#2C241E] border border-[#5C4030] rounded-2xl px-4 py-3 text-white" />
+            <input value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })} placeholder="кг / л / шт" aria-label="Единица измерения" className="w-full bg-[#2C241E] border border-[#5C4030] rounded-2xl px-4 py-3 text-white" />
             <div className="grid grid-cols-2 gap-3">
               <label className="text-sm text-[#C8A77E]">Остаток
                 <input type="number" step="0.01" value={form.quantity} onChange={(e) => setForm({ ...form, quantity: Number(e.target.value) })} className="mt-1 w-full bg-[#2C241E] border border-[#5C4030] rounded-2xl px-4 py-3 text-white" />
@@ -217,10 +246,10 @@ export default function IngredientsPage() {
                 <option value="kitchen">Кухня</option>
               </select>
             )}
-            {error && <p className="text-red-300 text-sm">{error}</p>}
+            {error && <p role="alert" className="text-red-300 text-sm">{error}</p>}
             <div className="flex gap-3 pt-2">
-              <button onClick={() => setOpen(false)} className="flex-1 py-3 rounded-2xl border border-[#5C4030] text-white">Отмена</button>
-              <button onClick={save} disabled={saving} className="flex-1 btn-primary py-3 disabled:opacity-50">{saving ? 'Сохранение…' : 'Сохранить'}</button>
+              <button type="button" onClick={() => setOpen(false)} disabled={saving} className="flex-1 py-3 rounded-2xl border border-[#5C4030] text-white disabled:opacity-50">Отмена</button>
+              <button type="button" onClick={save} disabled={saving} className="flex-1 btn-primary py-3 flex items-center justify-center gap-2 disabled:opacity-50">{saving ? <><Loader2 className="w-4 h-4 animate-spin" /> Сохранение…</> : 'Сохранить'}</button>
             </div>
           </div>
         </div>
@@ -229,9 +258,12 @@ export default function IngredientsPage() {
         <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-3">
           <div className="bg-[#3F2A1F] rounded-3xl p-6 w-full max-w-sm space-y-4">
             <h2 className="text-xl text-white">Удалить ингредиент?</h2>
+            <p className="text-sm text-gray-300">
+              {usage === null ? 'Проверяем, где он используется…' : usage > 0 ? `Он есть в техкартах (${usage}). Из них он тоже будет убран.` : 'В техкартах не используется.'}
+            </p>
             <div className="flex gap-3">
-              <button onClick={() => setConfirmId(null)} className="flex-1 py-3 rounded-2xl border border-[#5C4030] text-white">Нет</button>
-              <button onClick={() => { const item = items.find((i) => i.id === confirmId); if (item) remove(item); }} className="flex-1 py-3 rounded-2xl bg-red-700 text-white">Удалить</button>
+              <button type="button" onClick={() => setConfirmId(null)} disabled={deleting} className="flex-1 py-3 rounded-2xl border border-[#5C4030] text-white">Нет</button>
+              <button type="button" disabled={deleting || usage === null} onClick={() => { const item = items.find((i) => i.id === confirmId); if (item) remove(item); }} className="flex-1 py-3 rounded-2xl bg-red-700 text-white disabled:opacity-50">{deleting ? 'Удаление…' : 'Удалить'}</button>
             </div>
           </div>
         </div>
