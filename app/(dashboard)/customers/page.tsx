@@ -5,22 +5,16 @@ import { Plus, Loader2 } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
 import { toast } from '@/lib/store/toastStore';
 import { friendlyError } from '@/lib/errors';
+import { useSettings } from '@/lib/store/settingsStore';
+import { LOYALTY_LEVELS, discountFor as discountFromSettings } from '@/lib/settings';
 
 type Customer = { id?: string; name: string; phone: string; loyalty_level: string; points: number; total_spent: number };
 const empty: Customer = { name: '', phone: '', loyalty_level: 'Bronze', points: 0, total_spent: 0 };
 
-const LEVELS = [
-  { id: 'Bronze', label: 'Bronze', discount: 0 },
-  { id: 'Silver', label: 'Silver', discount: 5 },
-  { id: 'Gold', label: 'Gold', discount: 10 },
-  { id: 'Platinum', label: 'Platinum', discount: 15 },
-];
-
-export function discountFor(level: string) {
-  return LEVELS.find((l) => l.id === level)?.discount ?? 0;
-}
-
 export default function CustomersPage() {
+  const settings = useSettings();
+  const discountFor = (level: string) => discountFromSettings(level, settings);
+  const LEVELS = LOYALTY_LEVELS.map((id) => ({ id, label: id, discount: discountFor(id) }));
   const [rows, setRows] = useState<Customer[]>([]);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<Customer>(empty);
@@ -66,7 +60,7 @@ export default function CustomersPage() {
       <div className="flex justify-between mb-6">
         <div>
           <h1 className="text-4xl font-semibold">Клиенты</h1>
-          <p className="text-[#C8A77E]">Нажми строку, чтобы изменить. Скидка: Bronze 0% · Silver 5% · Gold 10% · Platinum 15%</p>
+          <p className="text-[#C8A77E]">Нажми строку, чтобы изменить. Скидка: {LEVELS.map((l) => `${l.label} ${l.discount}%`).join(' · ')}</p>
         </div>
         <button type="button" onClick={() => { setForm(empty); setError(''); setOpen(true); }} className="btn-primary px-8 py-4 flex items-center gap-2"><Plus /> Новый клиент</button>
       </div>

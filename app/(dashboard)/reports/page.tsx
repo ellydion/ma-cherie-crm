@@ -4,7 +4,9 @@ import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase/client';
 import { downloadXlsx } from '@/lib/excel';
 import { useZone } from '@/lib/useZone';
-import { productZone, zoneLabel } from '@/lib/zone';
+import { lineInZone, zoneLabel } from '@/lib/zone';
+import { useSettings } from '@/lib/store/settingsStore';
+import { loadCashierZones } from '@/lib/cashierZones';
 import { addDays, bishkekDayKey, bishkekDayLabel, bishkekDayStart, formatTime } from '@/lib/time';
 
 type DayPoint = { key: string; label: string; sales: number; cash: number; transfer: number; orders: number; cost: number; net: number };
@@ -20,7 +22,8 @@ type OrderRow = {
 const localDayKey = bishkekDayKey;
 
 export default function ReportsPage() {
-  const { zone } = useZone();
+  const { zone, profile } = useZone();
+  const { dessertsInCoffee, refreshSeconds } = useSettings().pos;
   const [days, setDays] = useState<Range>(1);
   const [points, setPoints] = useState<DayPoint[]>([]);
   const [updated, setUpdated] = useState('');
@@ -34,7 +37,7 @@ export default function ReportsPage() {
       const from = bishkekDayStart(days - 1);
 
       const [{ data: orders }, { data: products }, { data: recipes }, { data: ings }] = await Promise.all([
-        supabase.from('orders').select('id, total, payment_method, created_at, table_number').gte('created_at', from.toISOString()).order('created_at', { ascending: false }),
+        supabase.from('orders').select('*').gte('created_at', from.toISOString()).order('created_at', { ascending: false }),
         supabase.from('products').select('id, name, cost_price, section, category'),
         supabase.from('product_ingredients').select('product_id, ingredient_id, quantity'),
         supabase.from('ingredients').select('id, cost_price'),
@@ -45,9 +48,12 @@ export default function ReportsPage() {
       const { data: items } = ids.length
         ? await supabase.from('order_items').select('order_id, product_id, product_name, quantity, price').in('order_id', ids)
         : { data: [] as any[] };
+      const cashierZones = await loadCashierZones({ id: profile?.id, zone: profile?.zone });
       if (!alive) return;
 
-      const zones = new Map((products || []).map((p: any) => [p.id, productZone(p)]));
+      const productById = new Map((products || []).map((p) => [p.id, p]));
+      const orderById = new Map(list.map((o) => [o.id, o]));
+      const ctx = { dessertsInCoffee, cashierZones };
       const costByIng = new Map((ings || []).map((i: any) => [i.id, Number(i.cost_price || 0)]));
       const costByProduct = new Map((products || []).map((p: any) => [p.id, Number(p.cost_price || 0)]));
       const recipeCost = new Map<string, number>();
@@ -75,9 +81,8 @@ export default function ReportsPage() {
       (items || []).forEach((row: any) => {
         const qty = Number(row.quantity);
         const lineSum = qty * Number(row.price);
-        const z = zones.get(row.product_id) || productZone({ name: row.product_name });
         allSumByOrder.set(row.order_id, (allSumByOrder.get(row.order_id) || 0) + lineSum);
-        if (zone !== 'all' && z !== zone) return;
+        if (!lineInZone(productById.get(row.product_id) || { name: row.product_name }, zone, orderById.get(row.order_id), ctx)) return;
         zoneSumByOrder.set(row.order_id, (zoneSumByOrder.get(row.order_id) || 0) + lineSum);
         const cost = unitCost(row.product_id) * qty;
         const arr = itemsByOrder.get(row.order_id) || [];
@@ -125,10 +130,10 @@ export default function ReportsPage() {
     };
 
     load();
-    const t = setInterval(load, 15000);
+    const t = setInterval(load, refreshSeconds * 1000);
     window.addEventListener('focus', load);
     return () => { alive = false; clearInterval(t); window.removeEventListener('focus', load); };
-  }, [days, zone]);
+  }, [days, zone, dessertsInCoffee, refreshSeconds, profile?.id, profile?.zone]);
 
   const sales = points.reduce((s, p) => s + p.sales, 0);
   const cash = points.reduce((s, p) => s + p.cash, 0);

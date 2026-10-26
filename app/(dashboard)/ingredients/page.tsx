@@ -7,6 +7,7 @@ import { useZone } from '@/lib/useZone';
 import { zoneLabel } from '@/lib/zone';
 import { toast } from '@/lib/store/toastStore';
 import { friendlyError } from '@/lib/errors';
+import { useSettings } from '@/lib/store/settingsStore';
 
 type Ing = {
   id: string;
@@ -31,6 +32,7 @@ const emptyForm: FormState = { name: '', unit: 'кг', quantity: 0, min_threshol
 
 export default function IngredientsPage() {
   const { zone } = useZone();
+  const defaultMinThreshold = useSettings().inventory.defaultMinThreshold;
   const [items, setItems] = useState<Ing[]>([]);
   const [tab, setTab] = useState<'all' | 'coffee' | 'kitchen'>('all');
   const [search, setSearch] = useState('');
@@ -67,7 +69,7 @@ export default function IngredientsPage() {
 
   const openCreate = () => {
     setEditing(null);
-    setForm({ ...emptyForm, section: zone === 'kitchen' ? 'kitchen' : 'coffee' });
+    setForm({ ...emptyForm, min_threshold: defaultMinThreshold, section: zone === 'kitchen' ? 'kitchen' : 'coffee' });
     setError('');
     setOpen(true);
   };

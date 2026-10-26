@@ -8,6 +8,7 @@ import { useProfileStore } from '@/lib/store/profileStore';
 import { useUiStore } from '@/lib/store/uiStore';
 import { useZoneViewStore } from '@/lib/store/zoneViewStore';
 import { Zone, zoneLabel } from '@/lib/zone';
+import { useSettings } from '@/lib/store/settingsStore';
 import {
   LayoutDashboard, Receipt, Coffee, Leaf, Package, BookOpen,
   Users, Truck, BarChart3, Settings, LogOut, X, Clock,
@@ -37,6 +38,7 @@ export default function Sidebar() {
   const pathname = usePathname();
   const { profile, fetchProfile, signOut } = useProfileStore();
   const { sidebarOpen, setSidebar } = useUiStore();
+  const companyName = useSettings().company.name;
   const view = useZoneViewStore((s) => s.view);
   const setView = useZoneViewStore((s) => s.setView);
   const isAdmin = (profile?.email || '').toLowerCase() === 'admin@macherie.coffee' || profile?.role === 'admin';
@@ -67,7 +69,7 @@ export default function Sidebar() {
           <Link href="/" className="flex items-center gap-3 min-w-0" onClick={() => window.innerWidth < 1024 && setSidebar(false)}>
             <Image src="/ma-cherie-logo.jpg" alt="Ma Cherie" width={44} height={44} className="object-contain rounded-2xl shrink-0" />
             <div className="min-w-0">
-              <h1 className="text-lg sm:text-xl font-semibold text-white truncate">Ma Cherie</h1>
+              <h1 className="text-lg sm:text-xl font-semibold text-white truncate">{companyName}</h1>
               <p className="text-[10px] text-[#C8A77E] tracking-widest">{zoneLabel(zone).toUpperCase()}</p>
             </div>
           </Link>

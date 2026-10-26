@@ -18,15 +18,56 @@ export function productZone(p: { section?: string | null; category?: string | nu
   return 'coffee';
 }
 
-// Видимость товара в кассе по зоне. Десерты продаются и на кухне, и в кофейне,
-// поэтому в кассе они видны в обеих зонах. В отчётах выручка по десертам
-// по-прежнему считается кухне (productZone не меняется).
-export function visibleInZone(
-  p: { section?: string | null; category?: string | null; name?: string | null },
+type ProductLike = { section?: string | null; category?: string | null; name?: string | null };
+
+export function isDessert(p: ProductLike | null | undefined) {
+  return (p?.category || '').toLowerCase() === 'desserts';
+}
+
+// Видимость товара по зоне (касса, список товаров). Десерты продаются и на кухне,
+// и в кофейне, поэтому при включённой настройке «Десерты в кофейне» видны в обеих зонах.
+export function visibleInZone(p: ProductLike, zone: Zone, dessertsInCoffee = true): boolean {
+  if (zone === 'all') return true;
+  if (dessertsInCoffee && isDessert(p)) return true;
+  return productZone(p) === zone;
+}
+
+/** Для каких зон считаем продажу, если у заказа нет своей зоны (старые заказы). */
+export type SaleZoneContext = {
+  dessertsInCoffee: boolean;
+  /** Зона кассира по cashier_id (из профилей и почты). */
+  cashierZones: Map<string, Zone>;
+};
+
+/** Зона, в которой пробит заказ: orders.zone, иначе зона кассира. null, если неизвестно. */
+export function saleZone(
+  order: { zone?: string | null; cashier_id?: string | null } | null | undefined,
+  ctx: SaleZoneContext,
+): ProductZone | null {
+  const z = order?.zone;
+  if (z === 'coffee' || z === 'kitchen') return z;
+  const cz = order?.cashier_id ? ctx.cashierZones.get(order.cashier_id) : undefined;
+  if (cz === 'coffee' || cz === 'kitchen') return cz;
+  return null;
+}
+
+/**
+ * Относится ли позиция заказа к зоне для отчётов и дашборда.
+ * Обычные товары: по productZone. Десерты (если продаются в кофейне):
+ * по зоне, где пробит заказ; если она неизвестна, десерт виден в обеих зонах.
+ */
+export function lineInZone(
+  product: ProductLike | null | undefined,
   zone: Zone,
+  order: { zone?: string | null; cashier_id?: string | null } | null | undefined,
+  ctx: SaleZoneContext,
 ): boolean {
   if (zone === 'all') return true;
-  if ((p.category || '').toLowerCase() === 'desserts') return true;
+  const p = product || {};
+  if (ctx.dessertsInCoffee && isDessert(p)) {
+    const sz = saleZone(order, ctx);
+    return sz ? sz === zone : true;
+  }
   return productZone(p) === zone;
 }
 

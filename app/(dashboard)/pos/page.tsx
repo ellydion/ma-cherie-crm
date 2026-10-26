@@ -6,6 +6,10 @@ import { supabase } from '@/lib/supabase/client';
 import { useShiftStore } from '@/lib/store/shiftStore';
 import { useZone } from '@/lib/useZone';
 import { visibleInZone, zoneLabel } from '@/lib/zone';
+import { useSettings } from '@/lib/store/settingsStore';
+import { discountFor, pointsFor } from '@/lib/settings';
+import { toast } from '@/lib/store/toastStore';
+import { friendlyError } from '@/lib/errors';
 
 type Product = { id: string; name: string; price: number; category: string; section?: string; track_stock?: boolean };
 type Line = Product & { quantity: number };
@@ -19,7 +23,11 @@ export default function PosPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [cat, setCat] = useState('all');
   const [search, setSearch] = useState('');
-  const [table, setTable] = useState('Стол 1');
+  const settings = useSettings();
+  const { dessertsInCoffee, showHiddenOnPos, autoWriteOff, cashEnabled, transferEnabled, defaultTable } = settings.pos;
+  // Стол по умолчанию из настроек, пока кассир сам его не менял.
+  const [tableInput, setTableInput] = useState<string | null>(null);
+  const table = tableInput ?? defaultTable;
   const [lines, setLines] = useState<Line[]>([]);
   const [loadError, setLoadError] = useState('');
   const currentShift = useShiftStore((s) => s.current);
@@ -30,12 +38,13 @@ export default function PosPage() {
 
   useEffect(() => {
     const load = async () => {
-      const { data, error } = await supabase.from('products').select('id, name, price, category, section, track_stock')
-        // Скрытые («Убрать» в техкартах) и неактивные товары не показываем в кассе.
+      let q = supabase.from('products').select('id, name, price, category, section, track_stock')
+        // Неактивные товары не показываем в кассе. Скрытые («Убрать» в техкартах)
+        // тоже, если в настройках не включено «Показывать скрытые на кассе».
         // not.is.* оставляет NULL, чтобы старые строки без флагов не пропали.
-        .not('is_active', 'is', false)
-        .not('hidden_from_techcards', 'is', true)
-        .order('name');
+        .not('is_active', 'is', false);
+      if (!showHiddenOnPos) q = q.not('hidden_from_techcards', 'is', true);
+      const { data, error } = await q.order('name');
       if (error) { setLoadError(error.message); setProducts([]); return; }
       setLoadError('');
       setProducts(data || []);
@@ -43,13 +52,13 @@ export default function PosPage() {
     load();
     refreshShift();
     supabase.from('customers').select('id, name, loyalty_level, points, total_spent').order('name').then(({ data }) => setCustomers(data || []));
-  }, [refreshShift]);
+  }, [refreshShift, showHiddenOnPos]);
 
-  const zoneProducts = products.filter((p) => visibleInZone(p, zone));
+  const zoneProducts = products.filter((p) => visibleInZone(p, zone, dessertsInCoffee));
   const list = zoneProducts.filter((p) => (cat === 'all' || p.category === cat) && p.name.toLowerCase().includes(search.toLowerCase()));
   const subtotal = lines.reduce((s, l) => s + l.price * l.quantity, 0);
   const guest = customers.find((c) => c.id === customerId);
-  const discountPct = guest?.loyalty_level === 'Platinum' ? 15 : guest?.loyalty_level === 'Gold' ? 10 : guest?.loyalty_level === 'Silver' ? 5 : 0;
+  const discountPct = guest ? discountFor(guest.loyalty_level, settings) : 0;
   const discount = Math.round(subtotal * discountPct / 100);
   const total = Math.max(0, subtotal - discount);
 
@@ -89,20 +98,29 @@ export default function PosPage() {
     if (currentShift?.id) payload.shift_id = currentShift.id;
     const { data: auth } = await supabase.auth.getUser();
     if (auth.user?.id) payload.cashier_id = auth.user.id;
+    // Зона, где пробит заказ (нужна, чтобы десерты из кофейни попали в продажи баристы).
+    // Колонка orders.zone появляется в sql/18; до неё повторяем вставку без неё.
+    payload.zone = zone;
     let { data: order, error } = await supabase.from('orders').insert([payload]).select().single();
+    if (error && 'zone' in payload && (error.code === 'PGRST204' || error.code === '42703' || /zone/i.test(error.message || ''))) {
+      delete payload.zone;
+      const retry = await supabase.from('orders').insert([payload]).select().single();
+      order = retry.data;
+      error = retry.error;
+    }
     if (error && payload.shift_id) {
       delete payload.shift_id;
       const retry = await supabase.from('orders').insert([payload]).select().single();
       order = retry.data;
       error = retry.error;
     }
-    if (error || !order) { alert('Не удалось сохранить заказ'); return; }
+    if (error || !order) { toast.error(friendlyError(error, 'Не удалось сохранить заказ')); return; }
     await supabase.from('order_items').insert(lines.map((l) => ({ order_id: order.id, product_id: l.id, product_name: l.name, quantity: l.quantity, price: l.price })));
-    for (const line of lines) await writeOff(line);
+    if (autoWriteOff) for (const line of lines) await writeOff(line);
     if (guest) {
       await supabase.from('customers').update({
         total_spent: Number(guest.total_spent || 0) + total,
-        points: Number(guest.points || 0) + Math.round(total / 10),
+        points: Number(guest.points || 0) + pointsFor(total, settings),
       }).eq('id', guest.id);
     }
     setLines([]);
@@ -116,7 +134,7 @@ export default function PosPage() {
           <h1 className="text-2xl sm:text-3xl lg:text-4xl font-semibold">Касса · {zoneLabel(zone)}</h1>
           <p className="text-[#C8A77E] text-sm">{zone === 'all' ? 'Все товары' : `Только ${zoneLabel(zone).toLowerCase()}`}</p>
         </div>
-        <input value={table} onChange={(e) => setTable(e.target.value)} className="bg-[#3F2A1F] border border-[#5C4030] rounded-2xl px-4 py-3 w-full sm:w-40" />
+        <input value={table} onChange={(e) => setTableInput(e.target.value)} className="bg-[#3F2A1F] border border-[#5C4030] rounded-2xl px-4 py-3 w-full sm:w-40" />
       </div>
       <div className="flex gap-2 mb-4 flex-wrap">
         {CATS.map(([id, label]) => (
@@ -157,9 +175,10 @@ export default function PosPage() {
             {discountPct > 0 && <div className="flex justify-between text-[#C8A77E]"><span>Скидка {guest?.loyalty_level} {discountPct}%</span><span className="font-mono">-{discount} с</span></div>}
           </div>
           <p className="text-2xl sm:text-3xl font-semibold mb-4">Итого {total} с</p>
-          <div className="grid grid-cols-2 gap-3">
-            <button type="button" onClick={() => close('cash')} disabled={!lines.length} className="py-4 rounded-2xl bg-emerald-600 disabled:bg-gray-600">Наличка</button>
-            <button type="button" onClick={() => close('transfer')} disabled={!lines.length} className="py-4 rounded-2xl bg-blue-600 disabled:bg-gray-600">Перевод</button>
+          <div className={`grid gap-3 ${cashEnabled && transferEnabled ? 'grid-cols-2' : 'grid-cols-1'}`}>
+            {cashEnabled && <button type="button" onClick={() => close('cash')} disabled={!lines.length} className="py-4 rounded-2xl bg-emerald-600 disabled:bg-gray-600">Наличка</button>}
+            {transferEnabled && <button type="button" onClick={() => close('transfer')} disabled={!lines.length} className="py-4 rounded-2xl bg-blue-600 disabled:bg-gray-600">Перевод</button>}
+            {!cashEnabled && !transferEnabled && <p className="text-red-400 text-sm">Все способы оплаты выключены в настройках</p>}
           </div>
         </div>
       </div>

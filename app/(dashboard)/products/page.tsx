@@ -4,7 +4,8 @@ import { useEffect, useRef, useState } from 'react';
 import { Plus, Pencil, Loader2, CheckCircle2 } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
 import { useZone } from '@/lib/useZone';
-import { productZone, zoneLabel } from '@/lib/zone';
+import { visibleInZone, zoneLabel } from '@/lib/zone';
+import { useSettings } from '@/lib/store/settingsStore';
 import { toast } from '@/lib/store/toastStore';
 import { friendlyError } from '@/lib/errors';
 
@@ -21,6 +22,7 @@ const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ');
 
 export default function ProductsPage() {
   const { zone } = useZone();
+  const dessertsInCoffee = useSettings().pos.dessertsInCoffee;
   const [items, setItems] = useState<Product[]>([]);
   const [cat, setCat] = useState('all');
   const [search, setSearch] = useState('');
@@ -50,7 +52,7 @@ export default function ProductsPage() {
   }, [highlightId, items]);
 
   const filtered = items.filter((p) => {
-    if (zone !== 'all' && productZone(p) !== zone) return false;
+    if (!visibleInZone(p, zone, dessertsInCoffee)) return false;
     return (cat === 'all' || p.category === cat) && p.name.toLowerCase().includes(search.toLowerCase());
   });
 
