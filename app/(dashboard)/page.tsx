@@ -5,11 +5,15 @@ import Link from 'next/link';
 import { Coffee, Utensils } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
 import { useZone } from '@/lib/useZone';
-import { productZone, zoneLabel } from '@/lib/zone';
+import { lineInZone, zoneLabel } from '@/lib/zone';
 import { bishkekDayStart, formatTime } from '@/lib/time';
+import { useSettings } from '@/lib/store/settingsStore';
+import { loadCashierZones } from '@/lib/cashierZones';
 
 export default function DashboardPage() {
-  const { zone, isAdmin } = useZone();
+  const { zone, isAdmin, profile } = useZone();
+  const settings = useSettings();
+  const { dessertsInCoffee, refreshSeconds } = settings.pos;
   const [revenue, setRevenue] = useState(0);
   const [ordersCount, setOrdersCount] = useState(0);
   const [avg, setAvg] = useState(0);
@@ -24,7 +28,8 @@ export default function DashboardPage() {
     const start = bishkekDayStart(0);
     const { data: orders } = await supabase
       .from('orders')
-      .select('id, total, created_at, payment_method, table_number')
+      // select('*'): колонка orders.zone появляется только после sql/18, до неё её просто нет.
+      .select('*')
       .gte('created_at', start.toISOString())
       .order('created_at', { ascending: false });
     const list = orders || [];
@@ -33,18 +38,21 @@ export default function DashboardPage() {
       ? await supabase.from('order_items').select('order_id, product_id, product_name, quantity, price').in('order_id', ids)
       : { data: [] as any[] };
     const { data: products } = await supabase.from('products').select('id, name, section, category');
-    const zones = new Map((products || []).map((p: any) => [p.id, productZone(p)]));
+    const productById = new Map((products || []).map((p) => [p.id, p]));
+    const orderById = new Map(list.map((o) => [o.id, o]));
+    const ctx = { dessertsInCoffee, cashierZones: await loadCashierZones({ id: profile?.id, zone: profile?.zone }) };
+    const inZone = (row: { order_id: string; product_id: string | null; product_name: string }) => lineInZone(productById.get(row.product_id) || { name: row.product_name }, zone, orderById.get(row.order_id), ctx);
 
     const map = new Map<string, { name: string; qty: number; sum: number }>();
     const orderShare = new Map<string, { zone: number; all: number }>();
     (items || []).forEach((row: any) => {
       const lineSum = Number(row.quantity) * Number(row.price);
-      const z = zones.get(row.product_id) || productZone({ name: row.product_name });
+      const visible = inZone(row);
       const share = orderShare.get(row.order_id) || { zone: 0, all: 0 };
       share.all += lineSum;
-      if (zone === 'all' || z === zone) share.zone += lineSum;
+      if (visible) share.zone += lineSum;
       orderShare.set(row.order_id, share);
-      if (zone !== 'all' && z !== zone) return;
+      if (!visible) return;
       const cur = map.get(row.product_name) || { name: row.product_name, qty: 0, sum: 0 };
       cur.qty += Number(row.quantity);
       cur.sum += lineSum;
@@ -79,9 +87,9 @@ export default function DashboardPage() {
   useEffect(() => {
     setLoading(true);
     load();
-    const t = setInterval(load, 20000);
+    const t = setInterval(load, refreshSeconds * 1000);
     return () => clearInterval(t);
-  }, [zone]);
+  }, [zone, dessertsInCoffee, refreshSeconds, profile?.id]);
 
   if (loading) return <p className="text-center py-12">Загрузка...</p>;
 

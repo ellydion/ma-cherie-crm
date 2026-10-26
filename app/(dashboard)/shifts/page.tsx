@@ -5,6 +5,7 @@ import { supabase } from '@/lib/supabase/client';
 import { useShiftStore } from '@/lib/store/shiftStore';
 import { downloadXlsx } from '@/lib/excel';
 import { formatDateTime } from '@/lib/time';
+import { useSettings } from '@/lib/store/settingsStore';
 
 type Row = {
   id: string;
@@ -24,6 +25,7 @@ export default function ShiftsPage() {
   const [rows, setRows] = useState<Row[]>([]);
   const [msg, setMsg] = useState('');
   const [checks, setChecks] = useState<Check[]>([]);
+  const refreshSeconds = useSettings().pos.refreshSeconds;
 
   const seedChecks = async (shiftId: string) => {
     const { data: tasks } = await supabase.from('checklist_tasks').select('id').order('sort');
@@ -72,9 +74,9 @@ export default function ShiftsPage() {
 
   useEffect(() => {
     load();
-    const t = setInterval(load, 20000);
+    const t = setInterval(load, refreshSeconds * 1000);
     return () => clearInterval(t);
-  }, []);
+  }, [refreshSeconds]);
 
   const onOpen = async () => {
     if (current) { setMsg('Смена уже открыта'); return; }
