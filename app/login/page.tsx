@@ -22,7 +22,9 @@ export default function LoginPage() {
       router.refresh();
     } catch (err: unknown) {
       const text = err instanceof Error ? err.message : '';
-      setError(/invalid login credentials/i.test(text) ? 'Неверный email или пароль' : text || 'Ошибка входа');
+      if (/invalid login credentials/i.test(text)) setError('Неверный email или пароль');
+      else if (/failed to fetch|network/i.test(text)) setError('Нет связи с сервером. Проверь интернет и попробуй ещё раз.');
+      else setError(text || 'Ошибка входа');
     } finally {
       setLoading(false);
     }
