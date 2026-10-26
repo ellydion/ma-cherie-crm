@@ -30,7 +30,12 @@ export default function PosPage() {
 
   useEffect(() => {
     const load = async () => {
-      const { data, error } = await supabase.from('products').select('id, name, price, category, section, track_stock').order('name');
+      const { data, error } = await supabase.from('products').select('id, name, price, category, section, track_stock')
+        // Скрытые («Убрать» в техкартах) и неактивные товары не показываем в кассе.
+        // not.is.* оставляет NULL, чтобы старые строки без флагов не пропали.
+        .not('is_active', 'is', false)
+        .not('hidden_from_techcards', 'is', true)
+        .order('name');
       if (error) { setLoadError(error.message); setProducts([]); return; }
       setLoadError('');
       setProducts(data || []);
