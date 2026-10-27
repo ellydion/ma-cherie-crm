@@ -9,12 +9,12 @@ import { useSettings } from '@/lib/store/settingsStore';
 import { loadCashierZones } from '@/lib/cashierZones';
 import { addDays, bishkekDayKey, bishkekDayLabel, bishkekDayStart, formatTime } from '@/lib/time';
 
-type DayPoint = { key: string; label: string; sales: number; cash: number; transfer: number; orders: number; cost: number; net: number };
+type DayPoint = { key: string; label: string; sales: number; cash: number; transfer: number; orders: number; cost: number; net: number; discount: number };
 type Range = 1 | 3 | 7 | 14 | 30;
 type Sold = { name: string; qty: number; sum: number };
 type Line = { name: string; qty: number; price: number; cost: number };
 type OrderRow = {
-  id: string; created_at: string; total: number; cost: number; net: number;
+  id: string; created_at: string; total: number; cost: number; net: number; discount: number; discountPct: number;
   payment_method: string | null; table_number: string | null; items: Line[];
 };
 
@@ -70,7 +70,7 @@ export default function ReportsPage() {
       for (let i = 0; i < days; i++) {
         const d = addDays(from, i);
         const key = localDayKey(d);
-        map.set(key, { key, label: bishkekDayLabel(d), sales: 0, cash: 0, transfer: 0, orders: 0, cost: 0, net: 0 });
+        map.set(key, { key, label: bishkekDayLabel(d), sales: 0, cash: 0, transfer: 0, orders: 0, cost: 0, net: 0, discount: 0 });
       }
 
       const itemsByOrder = new Map<string, Line[]>();
@@ -105,14 +105,16 @@ export default function ReportsPage() {
         const total = Math.round(Number(o.total) * part);
         const cost = Math.round(costByOrder.get(o.id) || 0);
         const net = total - cost;
+        // Скидка по лояльности отдельно от выручки (orders.discount_amount из sql/20; до неё 0).
+        const discount = Math.round(Number(o.discount_amount || 0) * part);
         const row = map.get(key);
         if (row) {
-          row.sales += total; row.cost += cost; row.net += net; row.orders += 1;
+          row.sales += total; row.cost += cost; row.net += net; row.orders += 1; row.discount += discount;
           if (o.payment_method === 'cash') row.cash += total;
           if (o.payment_method === 'transfer') row.transfer += total;
         }
         if (!byDay[key]) byDay[key] = [];
-        byDay[key].push({ id: o.id, created_at: o.created_at, total, cost, net, payment_method: o.payment_method, table_number: o.table_number, items: itemsByOrder.get(o.id) || [] });
+        byDay[key].push({ id: o.id, created_at: o.created_at, total, cost, net, discount, discountPct: Number(o.discount_percent || 0), payment_method: o.payment_method, table_number: o.table_number, items: itemsByOrder.get(o.id) || [] });
       });
 
       const pts = Array.from(map.values());
@@ -140,6 +142,7 @@ export default function ReportsPage() {
   const transfer = points.reduce((s, p) => s + p.transfer, 0);
   const costSum = points.reduce((s, p) => s + p.cost, 0);
   const netSum = points.reduce((s, p) => s + p.net, 0);
+  const discountSum = points.reduce((s, p) => s + p.discount, 0);
   const orderCount = points.reduce((s, p) => s + p.orders, 0);
   const max = Math.max(1, ...points.map((p) => p.sales));
   const best = [...points].sort((a, b) => b.sales - a.sales)[0];
@@ -148,31 +151,33 @@ export default function ReportsPage() {
   const dayGross = dayOrders.reduce((s, o) => s + o.total, 0);
   const dayCost = dayOrders.reduce((s, o) => s + o.cost, 0);
   const dayNet = dayGross - dayCost;
+  const dayDiscount = dayOrders.reduce((s, o) => s + o.discount, 0);
 
   return (
     <div>
       <div className="flex flex-wrap justify-between items-center gap-4 mb-6">
         <div>
           <h1 className="text-3xl sm:text-4xl font-semibold">Отчёты · {zoneLabel(zone)}</h1>
-          <p className="text-[#C8A77E] text-sm mt-1">Обновляется каждые 15 сек{updated ? ` · ${updated}` : ''}</p>
+          <p className="text-[#C8A77E] text-sm mt-1">Обновляется каждые {refreshSeconds} сек{updated ? ` · ${updated}` : ''}</p>
         </div>
         <div className="flex flex-wrap gap-2">
           {([1, 3, 7, 14, 30] as Range[]).map((n) => (
             <button key={n} type="button" onClick={() => setDays(n)} className={`px-4 py-3 rounded-3xl ${days === n ? 'bg-[#C8A77E] text-[#3F2A1F]' : 'bg-[#3F2A1F]'}`}>{n === 1 ? 'Сегодня' : `${n} дн.`}</button>
           ))}
           <button type="button" onClick={() => downloadXlsx(`otchet-${zone}-${days}d.xlsx`, points.map((p) => ({
-            'дата': p.label, 'заказы': p.orders, 'сумма': p.sales, 'себестоимость': p.cost, 'чистыми': p.net, 'нал': p.cash, 'перевод': p.transfer,
+            'дата': p.label, 'заказы': p.orders, 'сумма': p.sales, 'себестоимость': p.cost, 'чистыми': p.net, 'нал': p.cash, 'перевод': p.transfer, 'скидки': p.discount,
           })))} className="px-4 py-3 rounded-3xl border border-[#5C4030]">Excel</button>
         </div>
       </div>
 
-      <div className="grid md:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4 mb-8">
         <div className="card p-5"><p className="text-[#C8A77E] text-sm">Продажи</p><p className="text-3xl font-mono">{sales} с</p></div>
         <div className="card p-5"><p className="text-[#C8A77E] text-sm">Себес</p><p className="text-3xl font-mono">{costSum} с</p></div>
         <div className="card p-5"><p className="text-emerald-400 text-sm">Чистыми</p><p className="text-3xl font-mono">{netSum} с</p></div>
         <div className="card p-5"><p className="text-[#C8A77E] text-sm">Заказы</p><p className="text-3xl font-mono">{orderCount}</p></div>
         <div className="card p-5"><p className="text-emerald-400 text-sm">Наличка</p><p className="text-3xl font-mono">{cash} с</p></div>
         <div className="card p-5"><p className="text-blue-400 text-sm">Перевод</p><p className="text-3xl font-mono">{transfer} с</p></div>
+        <div className="card p-5"><p className="text-[#C8A77E] text-sm">Скидки</p><p className="text-3xl font-mono">{discountSum} с</p><p className="text-xs text-gray-400 mt-1">уже вычтены из продаж</p></div>
       </div>
 
       {best && best.sales > 0 && (
@@ -208,7 +213,7 @@ export default function ReportsPage() {
         <div className="card overflow-hidden">
           <div className="p-6">
             <h2 className="text-2xl">История {dayLabel}</h2>
-            <p className="text-sm text-[#C8A77E] mt-2">Сумма {dayGross} с · техкарты {dayCost} с · чистыми {dayNet} с</p>
+            <p className="text-sm text-[#C8A77E] mt-2">Сумма {dayGross} с · техкарты {dayCost} с · чистыми {dayNet} с{dayDiscount > 0 ? ` · скидки ${dayDiscount} с` : ''}</p>
           </div>
           {dayOrders.length === 0 ? <p className="px-6 pb-6 text-gray-400">В этот день заказов нет</p> : (
             <div className="max-h-[520px] overflow-auto">
@@ -222,7 +227,7 @@ export default function ReportsPage() {
                     </span>
                     <span className="font-mono">сумма {o.total} с</span>
                   </div>
-                  <p className="text-sm text-emerald-400 mb-2">чистыми {o.net} с · техкарты −{o.cost} с</p>
+                  <p className="text-sm text-emerald-400 mb-2">чистыми {o.net} с · техкарты −{o.cost} с{o.discount > 0 ? ` · скидка ${o.discountPct ? `${o.discountPct}% ` : ''}−${o.discount} с` : ''}</p>
                   {o.items.map((it, idx) => (
                     <p key={idx} className="text-sm flex justify-between gap-3">
                       <span>{it.qty}× {it.name}</span>

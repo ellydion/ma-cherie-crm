@@ -99,11 +99,20 @@ export default function PosPage() {
     const { data: auth } = await supabase.auth.getUser();
     if (auth.user?.id) payload.cashier_id = auth.user.id;
     // Зона, где пробит заказ (нужна, чтобы десерты из кофейни попали в продажи баристы).
-    // Колонка orders.zone появляется в sql/18; до неё повторяем вставку без неё.
     payload.zone = zone;
+    // Скидка по уровню лояльности из настроек: процент и сумма в сомах отдельными полями
+    // (total уже со скидкой). Колонки появляются в sql/20, zone в sql/18.
+    payload.discount_percent = discountPct;
+    payload.discount_amount = discount;
+    // Если какой-то из новых колонок в базе ещё нет, повторяем вставку без неё.
+    const optional: Record<string, string[]> = { zone: ['zone'], discount: ['discount_percent', 'discount_amount'] };
     let { data: order, error } = await supabase.from('orders').insert([payload]).select().single();
-    if (error && 'zone' in payload && (error.code === 'PGRST204' || error.code === '42703' || /zone/i.test(error.message || ''))) {
-      delete payload.zone;
+    for (let i = 0; i < 3 && error; i++) {
+      const text = `${error.message || ''} ${error.details || ''}`;
+      const missingColumn = error.code === 'PGRST204' || error.code === '42703' || /column/i.test(text);
+      const group = Object.keys(optional).find((k) => optional[k].some((c) => c in payload) && new RegExp(k, 'i').test(text));
+      if (!missingColumn || !group) break;
+      optional[group].forEach((c) => delete payload[c]);
       const retry = await supabase.from('orders').insert([payload]).select().single();
       order = retry.data;
       error = retry.error;
