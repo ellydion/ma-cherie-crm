@@ -9,7 +9,7 @@ import { useSettings } from '@/lib/store/settingsStore';
 import { toast } from '@/lib/store/toastStore';
 import { friendlyError } from '@/lib/errors';
 
-type Product = { id?: string; name: string; price: number; category: string; unit: string; section: string; track_stock: boolean };
+type Product = { id?: string; name: string; price: number; category: string; unit: string; section: string; track_stock: boolean; hidden_from_techcards?: boolean | null };
 
 const CATS = [
   { id: 'all', label: 'Все' }, { id: 'coffee', label: 'Кофе' }, { id: 'nitro', label: 'Нитро' },
@@ -33,10 +33,12 @@ export default function ProductsPage() {
   const [savedNote, setSavedNote] = useState('');
   const [dupConfirmed, setDupConfirmed] = useState(false);
   const [highlightId, setHighlightId] = useState<string | null>(null);
+  // Убранные в техкартах (дубли, снятые позиции) по умолчанию не показываем.
+  const [showHidden, setShowHidden] = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
 
   const load = async () => {
-    const { data, error: err } = await supabase.from('products').select('id, name, price, category, unit, section, track_stock').order('name');
+    const { data, error: err } = await supabase.from('products').select('id, name, price, category, unit, section, track_stock, hidden_from_techcards').order('name');
     if (err) { toast.error(friendlyError(err, 'Не удалось загрузить товары')); return; }
     setItems((data || []) as Product[]);
   };
@@ -51,8 +53,10 @@ export default function ProductsPage() {
     return () => clearTimeout(t);
   }, [highlightId, items]);
 
+  const hiddenCount = items.filter((p) => p.hidden_from_techcards && visibleInZone(p, zone, dessertsInCoffee)).length;
   const filtered = items.filter((p) => {
     if (!visibleInZone(p, zone, dessertsInCoffee)) return false;
+    if (p.hidden_from_techcards && !showHidden && p.id !== highlightId) return false;
     return (cat === 'all' || p.category === cat) && p.name.toLowerCase().includes(search.toLowerCase());
   });
 
@@ -68,7 +72,12 @@ export default function ProductsPage() {
     resetMessages();
     setOpen(true);
   };
-  const openEdit = (p: Product) => { setForm({ ...p, track_stock: !!p.track_stock }); resetMessages(); setOpen(true); };
+  const openEdit = (p: Product) => {
+    const { hidden_from_techcards: _hidden, ...rest } = p; // eslint-disable-line @typescript-eslint/no-unused-vars
+    setForm({ ...rest, track_stock: !!p.track_stock });
+    resetMessages();
+    setOpen(true);
+  };
   const close = () => { if (saving) return; setOpen(false); resetMessages(); };
 
   const save = async (addAnother = false) => {
@@ -81,7 +90,7 @@ export default function ProductsPage() {
     // Защита от дублей: такой же товар уже есть. Второе нажатие сохраняет всё равно.
     const dup = items.find((p) => p.id !== form.id && norm(p.name) === norm(name));
     if (dup && !dupConfirmed) {
-      setError(`Товар «${dup.name}» уже есть (${dup.price} с). Нажми «Сохранить» ещё раз, если это действительно другой товар.`);
+      setError(`Товар «${dup.name}» уже есть (${dup.price} с${dup.hidden_from_techcards ? ', убран' : ''}). Нажми «Сохранить» ещё раз, если это действительно другой товар.`);
       setDupConfirmed(true);
       return;
     }
@@ -140,7 +149,11 @@ export default function ProductsPage() {
           <button key={c.id} type="button" onClick={() => setCat(c.id)} className={`px-4 py-2 rounded-2xl text-sm ${cat === c.id ? 'bg-[#C8A77E] text-[#3F2A1F]' : 'bg-[#3F2A1F]'}`}>{c.label}</button>
         ))}
       </div>
-      <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Поиск" aria-label="Поиск товара" className="w-full bg-[#3F2A1F] border border-[#5C4030] rounded-2xl px-4 py-3 mb-6" />
+      <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Поиск" aria-label="Поиск товара" className="w-full bg-[#3F2A1F] border border-[#5C4030] rounded-2xl px-4 py-3 mb-3" />
+      <label className="flex items-center gap-2 text-sm text-[#C8A77E] mb-6 cursor-pointer w-fit">
+        <input type="checkbox" checked={showHidden} onChange={(e) => setShowHidden(e.target.checked)} className="w-4 h-4 accent-[#C8A77E]" />
+        Показать убранные{hiddenCount ? ` (${hiddenCount})` : ''}
+      </label>
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4">
         {filtered.map((p) => (
           <button
@@ -148,10 +161,10 @@ export default function ProductsPage() {
             key={p.id}
             id={`product-${p.id}`}
             onClick={() => openEdit(p)}
-            className={`card p-4 text-left transition-shadow ${highlightId === p.id ? 'ring-4 ring-emerald-400' : ''}`}
+            className={`card p-4 text-left transition-shadow ${highlightId === p.id ? 'ring-4 ring-emerald-400' : ''} ${p.hidden_from_techcards ? 'opacity-60' : ''}`}
           >
             <div className="flex justify-between gap-2"><p className="font-semibold text-base sm:text-lg line-clamp-2">{p.name}</p><Pencil className="w-4 h-4 text-[#C8A77E] shrink-0" /></div>
-            <p className="text-[#C8A77E] text-xs sm:text-sm mt-1">{CATS.find((c) => c.id === p.category)?.label || p.category}</p>
+            <p className="text-[#C8A77E] text-xs sm:text-sm mt-1">{CATS.find((c) => c.id === p.category)?.label || p.category}{p.hidden_from_techcards ? ' · убран' : ''}</p>
             <p className="text-2xl sm:text-3xl font-mono mt-3">{p.price} с</p>
           </button>
         ))}

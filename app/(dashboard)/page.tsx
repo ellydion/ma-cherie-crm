@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { Coffee, Utensils } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
@@ -10,20 +10,27 @@ import { bishkekDayStart, formatTime } from '@/lib/time';
 import { useSettings } from '@/lib/store/settingsStore';
 import { loadCashierZones } from '@/lib/cashierZones';
 
+type Snapshot = {
+  revenue: number; ordersCount: number; avg: number; cash: number; transfer: number; discounts: number;
+  sold: { name: string; qty: number; sum: number }[];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- строки orders из select('*')
+  recent: any[];
+};
+// Последние цифры по каждой зоне на время сессии вкладки: при возврате на дашборд
+// они видны сразу, а свежие подгружаются в фоне.
+const cache = new Map<string, Snapshot>();
+
 export default function DashboardPage() {
   const { zone, isAdmin, profile } = useZone();
   const settings = useSettings();
+  const zoneRef = useRef(zone);
   const { dessertsInCoffee, refreshSeconds } = settings.pos;
-  const [revenue, setRevenue] = useState(0);
-  const [ordersCount, setOrdersCount] = useState(0);
-  const [avg, setAvg] = useState(0);
-  const [cash, setCash] = useState(0);
-  const [transfer, setTransfer] = useState(0);
-  const [sold, setSold] = useState<{ name: string; qty: number; sum: number }[]>([]);
-  const [recent, setRecent] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [snap, setSnap] = useState<Snapshot | null>(() => cache.get(zone) || null);
+  const { revenue = 0, ordersCount = 0, avg = 0, cash = 0, transfer = 0, discounts = 0, sold = [], recent = [] } = snap || {};
+  const loading = !snap;
 
   const load = async () => {
+    const zoneAtStart = zone;
     // «Сегодня» считаем от 00:00 по Бишкеку, а не по часовому поясу устройства.
     const start = bishkekDayStart(0);
     const { data: orders } = await supabase
@@ -62,6 +69,7 @@ export default function DashboardPage() {
     let rev = 0;
     let cashSum = 0;
     let transferSum = 0;
+    let discountSum = 0;
     const recentZone: any[] = [];
     list.forEach((o) => {
       const share = orderShare.get(o.id);
@@ -71,27 +79,35 @@ export default function DashboardPage() {
       rev += amount;
       if (o.payment_method === 'cash') cashSum += amount;
       if (o.payment_method === 'transfer') transferSum += amount;
+      // Скидка по лояльности (orders.discount_amount, sql/20), в доле этой зоны.
+      discountSum += Math.round(Number(o.discount_amount || 0) * part);
       recentZone.push({ ...o, zoneTotal: amount });
     });
 
-    setRevenue(rev);
-    setOrdersCount(recentZone.length);
-    setAvg(recentZone.length ? Math.round(rev / recentZone.length) : 0);
-    setCash(cashSum);
-    setTransfer(transferSum);
-    setRecent(recentZone.slice(0, 8));
-    setSold(Array.from(map.values()).sort((a, b) => b.qty - a.qty).slice(0, 12));
-    setLoading(false);
+    const next: Snapshot = {
+      revenue: rev,
+      ordersCount: recentZone.length,
+      avg: recentZone.length ? Math.round(rev / recentZone.length) : 0,
+      cash: cashSum,
+      transfer: transferSum,
+      discounts: discountSum,
+      recent: recentZone.slice(0, 8),
+      sold: Array.from(map.values()).sort((a, b) => b.qty - a.qty).slice(0, 12),
+    };
+    cache.set(zoneAtStart, next);
+    if (zoneRef.current === zoneAtStart) setSnap(next);
   };
 
   useEffect(() => {
-    setLoading(true);
+    zoneRef.current = zone;
+    setSnap(cache.get(zone) || null);
     load();
     const t = setInterval(load, refreshSeconds * 1000);
     return () => clearInterval(t);
   }, [zone, dessertsInCoffee, refreshSeconds, profile?.id]);
 
-  if (loading) return <p className="text-center py-12">Загрузка...</p>;
+  // Без заглушки на весь экран: каркас виден сразу, цифры подставляются по готовности.
+  const v = (n: number | string) => (loading ? '…' : n);
 
   return (
     <div className="max-w-screen-2xl mx-auto">
@@ -108,20 +124,21 @@ export default function DashboardPage() {
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 mb-8">
-        <div className="card p-5"><p className="text-[#C8A77E] text-sm">Выручка</p><p className="text-3xl sm:text-4xl font-mono mt-2">{revenue} с</p></div>
-        <div className="card p-5"><p className="text-[#C8A77E] text-sm">Заказы</p><p className="text-3xl sm:text-4xl font-mono mt-2">{ordersCount}</p></div>
-        <div className="card p-5"><p className="text-[#C8A77E] text-sm">Средний чек</p><p className="text-3xl sm:text-4xl font-mono mt-2">{avg} с</p></div>
+        <div className="card p-5"><p className="text-[#C8A77E] text-sm">Выручка</p><p className="text-3xl sm:text-4xl font-mono mt-2">{v(revenue)} с</p>{discounts > 0 && <p className="text-sm text-[#C8A77E] mt-1">скидки −{discounts} с</p>}</div>
+        <div className="card p-5"><p className="text-[#C8A77E] text-sm">Заказы</p><p className="text-3xl sm:text-4xl font-mono mt-2">{v(ordersCount)}</p></div>
+        <div className="card p-5"><p className="text-[#C8A77E] text-sm">Средний чек</p><p className="text-3xl sm:text-4xl font-mono mt-2">{v(avg)} с</p></div>
         <div className="card p-5">
           <p className="text-[#C8A77E] text-sm mb-2">Оплата</p>
-          <p className="text-emerald-400">Наличка {cash} с</p>
-          <p className="text-blue-400">Перевод {transfer} с</p>
+          <p className="text-emerald-400">Наличка {v(cash)} с</p>
+          <p className="text-blue-400">Перевод {v(transfer)} с</p>
+          <p className="text-[#C8A77E]">Скидки {v(discounts)} с</p>
         </div>
       </div>
 
       <div className="grid lg:grid-cols-2 gap-6">
         <div className="card overflow-hidden">
           <h2 className="text-xl sm:text-2xl p-5">Продали сегодня</h2>
-          {sold.length === 0 ? <p className="p-5 text-gray-400">Пока пусто</p> : (
+          {sold.length === 0 ? <p className="p-5 text-gray-400">{loading ? 'Загрузка…' : 'Пока пусто'}</p> : (
             <table className="w-full"><thead><tr className="border-t border-[#5C4030] text-left"><th className="p-4">Товар</th><th className="p-4">Кол-во</th><th className="p-4">Сумма</th></tr></thead>
               <tbody>{sold.map((r) => <tr key={r.name} className="border-t border-[#5C4030]"><td className="p-4">{r.name}</td><td className="p-4 font-mono">{r.qty}</td><td className="p-4 font-mono text-[#C8A77E]">{r.sum} с</td></tr>)}</tbody>
             </table>
@@ -129,7 +146,7 @@ export default function DashboardPage() {
         </div>
         <div className="card overflow-hidden">
           <h2 className="text-xl sm:text-2xl p-5">Последние чеки</h2>
-          {recent.length === 0 ? <p className="p-5 text-gray-400">Нет заказов</p> : (
+          {recent.length === 0 ? <p className="p-5 text-gray-400">{loading ? 'Загрузка…' : 'Нет заказов'}</p> : (
             <table className="w-full"><thead><tr className="border-t border-[#5C4030] text-left"><th className="p-4">Время</th><th className="p-4">Стол</th><th className="p-4">Сумма</th></tr></thead>
               <tbody>{recent.map((o) => (
                 <tr key={o.id} className="border-t border-[#5C4030]">

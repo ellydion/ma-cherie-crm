@@ -1,11 +1,12 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase/client';
 import { useShiftStore } from '@/lib/store/shiftStore';
 import { downloadXlsx } from '@/lib/excel';
 import { formatDateTime } from '@/lib/time';
 import { useSettings } from '@/lib/store/settingsStore';
+import { friendlyError } from '@/lib/errors';
 
 type Row = {
   id: string;
@@ -16,7 +17,53 @@ type Row = {
   orders: number;
   cash: number;
   transfer: number;
+  /** false, пока выручка по смене ещё считается. */
+  statsReady: boolean;
 };
+
+type ShiftRow = { id: string; started_at: string; ended_at: string | null; note: string | null };
+type OrderLite = { total: number | string; payment_method: string | null; created_at: string; shift_id: string | null };
+
+const PAGE = 1000;
+
+/** Все заказы с даты from одним запросом (постранично по 1000, обычно одна страница). */
+async function fetchOrdersSince(from: string) {
+  const out: OrderLite[] = [];
+  for (let page = 0; page < 50; page++) {
+    const { data, error } = await supabase
+      .from('orders')
+      .select('total, payment_method, created_at, shift_id')
+      .gte('created_at', from)
+      .order('created_at', { ascending: true })
+      .range(page * PAGE, page * PAGE + PAGE - 1);
+    if (error) return { data: out, error };
+    out.push(...((data || []) as OrderLite[]));
+    if (!data || data.length < PAGE) break;
+  }
+  return { data: out, error: null };
+}
+
+/** Выручка по сменам: по orders.shift_id, а для заказов без смены по времени, как раньше. */
+function statsByShift(shifts: ShiftRow[], orders: OrderLite[]) {
+  const stats = new Map<string, { sales: number; orders: number; cash: number; transfer: number }>();
+  shifts.forEach((s) => stats.set(s.id, { sales: 0, orders: 0, cash: 0, transfer: 0 }));
+  const ranges = shifts.map((s) => ({ id: s.id, from: Date.parse(s.started_at), to: s.ended_at ? Date.parse(s.ended_at) : Infinity }));
+  for (const o of orders) {
+    let target = o.shift_id && stats.has(o.shift_id) ? o.shift_id : null;
+    if (!target && !o.shift_id) {
+      const t = Date.parse(o.created_at);
+      target = ranges.find((r) => t >= r.from && t <= r.to)?.id || null;
+    }
+    if (!target) continue;
+    const st = stats.get(target)!;
+    const total = Number(o.total) || 0;
+    st.sales += total;
+    st.orders += 1;
+    if (o.payment_method === 'cash') st.cash += total;
+    if (o.payment_method === 'transfer') st.transfer += total;
+  }
+  return stats;
+}
 
 type Check = { id: string; done: boolean; task: { title: string; phase: string; sort: number } };
 
@@ -27,20 +74,29 @@ export default function ShiftsPage() {
   const [checks, setChecks] = useState<Check[]>([]);
   const refreshSeconds = useSettings().pos.refreshSeconds;
 
+  const [loaded, setLoaded] = useState(false);
+  const [loadError, setLoadError] = useState('');
+  // Номер последней загрузки: ответы старых загрузок отбрасываются.
+  const seqRef = useRef(0);
+  // Пока идёт загрузка, тики автообновления пропускаются, чтобы запросы не копились.
+  const busyRef = useRef(false);
+
   const seedChecks = async (shiftId: string) => {
+    const { data: existing } = await supabase.from('shift_checks').select('id').eq('shift_id', shiftId).limit(1);
+    if (existing?.length) return;
     const { data: tasks } = await supabase.from('checklist_tasks').select('id').order('sort');
     if (!tasks?.length) return;
-    const { data: existing } = await supabase.from('shift_checks').select('id').eq('shift_id', shiftId);
-    if (existing?.length) return;
     await supabase.from('shift_checks').insert(tasks.map((t) => ({ shift_id: shiftId, task_id: t.id, done: false })));
   };
 
-  const loadChecks = async (shiftId?: string) => {
+  const loadChecks = async (shiftId?: string, seq?: number) => {
     if (!shiftId) { setChecks([]); return; }
     const { data } = await supabase
       .from('shift_checks')
       .select('id, done, task:checklist_tasks(title, phase, sort)')
       .eq('shift_id', shiftId);
+    if (seq !== undefined && seq !== seqRef.current) return;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- вложенный select без сгенерированных типов
     const list = (data || []).map((c: any) => ({
       id: c.id,
       done: c.done,
@@ -50,46 +106,74 @@ export default function ShiftsPage() {
     setChecks(list);
   };
 
-  const load = async () => {
-    await refresh();
-    const { data: shifts } = await supabase.from('shifts').select('*').order('started_at', { ascending: false }).limit(40);
-    const list = shifts || [];
-    const withStats: Row[] = [];
-    for (const s of list) {
-      let q = supabase.from('orders').select('total, payment_method').gte('created_at', s.started_at);
-      if (s.ended_at) q = q.lte('created_at', s.ended_at);
-      const { data: orders } = await q;
-      const sales = (orders || []).reduce((n, o) => n + Number(o.total), 0);
-      const cash = (orders || []).filter((o) => o.payment_method === 'cash').reduce((n, o) => n + Number(o.total), 0);
-      const transfer = (orders || []).filter((o) => o.payment_method === 'transfer').reduce((n, o) => n + Number(o.total), 0);
-      withStats.push({ id: s.id, started_at: s.started_at, ended_at: s.ended_at, note: s.note, sales, orders: (orders || []).length, cash, transfer });
+  // Раньше: 1 запрос смен и затем по запросу заказов на КАЖДУЮ смену по очереди (22 смены = 22 запроса
+  // подряд, около 5 с), и таблица с чек-листом рисовались только после последнего. Теперь: смены
+  // показываются сразу, заказы приходят одним запросом, чек-лист грузится параллельно.
+  const load = async (force = false) => {
+    if (busyRef.current && !force) return;
+    busyRef.current = true;
+    const seq = ++seqRef.current;
+    try {
+      const [, shiftsRes] = await Promise.all([
+        refresh(),
+        supabase.from('shifts').select('id, started_at, ended_at, note').order('started_at', { ascending: false }).limit(40),
+      ]);
+      if (seq !== seqRef.current) return;
+      if (shiftsRes.error) {
+        setLoadError(friendlyError(shiftsRes.error, 'Не удалось загрузить смены'));
+        setLoaded(true);
+        return;
+      }
+      setLoadError('');
+      const list = (shiftsRes.data || []) as ShiftRow[];
+      setRows((prev) => {
+        const old = new Map(prev.map((r) => [r.id, r]));
+        return list.map((s) => {
+          const was = old.get(s.id);
+          return was
+            ? { ...was, ...s }
+            : { ...s, sales: 0, orders: 0, cash: 0, transfer: 0, statsReady: false };
+        });
+      });
+      setLoaded(true);
+
+      const open = list.find((s) => !s.ended_at);
+      const checksTask = open
+        ? seedChecks(open.id).then(() => loadChecks(open.id, seq))
+        : Promise.resolve(setChecks([]));
+
+      const oldest = list[list.length - 1]?.started_at;
+      const ordersTask = oldest ? fetchOrdersSince(oldest) : Promise.resolve({ data: [] as OrderLite[], error: null });
+      const [{ data: orders, error: ordersError }] = await Promise.all([ordersTask, checksTask]);
+      if (seq !== seqRef.current) return;
+      if (ordersError) { setLoadError(friendlyError(ordersError, 'Не удалось посчитать выручку смен')); return; }
+      const stats = statsByShift(list, orders);
+      setRows(list.map((s) => ({ ...s, ...(stats.get(s.id) || { sales: 0, orders: 0, cash: 0, transfer: 0 }), statsReady: true })));
+    } finally {
+      if (seq === seqRef.current) busyRef.current = false;
     }
-    setRows(withStats);
-    const open = list.find((s) => !s.ended_at);
-    if (open) {
-      await seedChecks(open.id);
-      await loadChecks(open.id);
-    } else setChecks([]);
   };
 
   useEffect(() => {
-    load();
-    const t = setInterval(load, refreshSeconds * 1000);
-    return () => clearInterval(t);
-  }, [refreshSeconds]);
+    load(true);
+    const t = setInterval(() => load(), refreshSeconds * 1000);
+    // seqRef не DOM-узел: инкремент в cleanup как раз отменяет незавершённую загрузку.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    return () => { clearInterval(t); seqRef.current++; busyRef.current = false; };
+  }, [refreshSeconds]); // eslint-disable-line react-hooks/exhaustive-deps -- load читает актуальное состояние через ref'ы
 
   const onOpen = async () => {
     if (current) { setMsg('Смена уже открыта'); return; }
     const id = await openShift();
     if (id) await seedChecks(id);
     setMsg(id ? 'Смена открыта, чек-лист обновлён' : 'Не удалось открыть смену. Попробуй ещё раз или сообщи администратору.');
-    load();
+    load(true);
   };
 
   const onClose = async () => {
     await closeShift();
     setMsg('Смена закрыта');
-    load();
+    load(true);
   };
 
   const toggle = async (c: Check) => {
@@ -97,7 +181,7 @@ export default function ShiftsPage() {
     loadChecks(current?.id);
   };
 
-  const best = rows.filter((r) => r.ended_at).sort((a, b) => b.sales - a.sales)[0];
+  const best = rows.filter((r) => r.ended_at && r.statsReady).sort((a, b) => b.sales - a.sales)[0];
   const fmt = (iso: string) => formatDateTime(iso);
   const phases = [
     { id: 'open', label: 'Открытие' },
@@ -124,6 +208,7 @@ export default function ShiftsPage() {
         </div>
       </div>
       {msg && <p className="text-amber-400 mb-4">{msg}</p>}
+      {loadError && <p className="text-red-400 mb-4 text-sm">{loadError}</p>}
 
       {current && (
         <div className="card p-6 mb-8">
@@ -165,13 +250,15 @@ export default function ShiftsPage() {
             </tr>
           </thead>
           <tbody>
+            {!loaded && <tr><td colSpan={5} className="p-4 text-gray-400">Загрузка смен...</td></tr>}
+            {loaded && rows.length === 0 && !loadError && <tr><td colSpan={5} className="p-4 text-gray-400">Смен пока нет</td></tr>}
             {rows.map((r) => (
               <tr key={r.id} className="border-t border-[#5C4030]">
                 <td className="p-4">{fmt(r.started_at)}</td>
                 <td className="p-4">{r.ended_at ? fmt(r.ended_at) : <span className="text-emerald-400">идёт</span>}</td>
-                <td className="p-4 font-mono">{r.orders}</td>
-                <td className="p-4 font-mono text-[#C8A77E]">{r.sales} с</td>
-                <td className="p-4 text-sm">{r.cash} / {r.transfer}</td>
+                <td className="p-4 font-mono">{r.statsReady ? r.orders : '…'}</td>
+                <td className="p-4 font-mono text-[#C8A77E]">{r.statsReady ? `${r.sales} с` : '…'}</td>
+                <td className="p-4 text-sm">{r.statsReady ? `${r.cash} / ${r.transfer}` : '…'}</td>
               </tr>
             ))}
           </tbody>
