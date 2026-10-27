@@ -50,27 +50,47 @@ function ProfileFields() {
   const [avatar, setAvatar] = useState(profile?.avatar || '');
   const [saving, setSaving] = useState(false);
 
+  const [note, setNote] = useState('');
+
+  // Сохраняем только свои поля: имя, должность, телефон, аватар. Роль, зону и email
+  // форма не отправляет никогда; RLS profiles_update тоже не даёт их менять не админу.
   const save = async () => {
-    if (!profile?.id || saving) return;
+    if (saving) return;
+    setNote('');
     if (!name.trim()) { toast.error('Имя обязательно'); return; }
-    const payload = { name: name.trim(), position: position.trim(), phone: phone.trim() || null, avatar: avatar.trim() || null };
     setSaving(true);
-    const { data, error } = await supabase.from('profiles').update(payload).eq('id', profile.id).select('id');
-    setSaving(false);
-    if (error) { toast.error(friendlyError(error)); return; }
-    if (!data?.length) { toast.error('Профиль не найден или нет прав на изменение'); return; }
-    updateProfile({ name: payload.name, position: payload.position, phone: payload.phone || '', avatar: payload.avatar || profile.avatar });
-    toast.success('Профиль сохранён');
+    try {
+      const { data: auth } = await supabase.auth.getUser();
+      const uid = auth.user?.id || profile?.id;
+      if (!uid) { toast.error('Сессия не найдена, войди заново'); return; }
+      const payload = { name: name.trim(), position: position.trim(), phone: phone.trim() || null, avatar: avatar.trim() || null };
+      const { data, error } = await supabase.from('profiles').update(payload).eq('id', uid).select('id');
+      if (error) { toast.error(friendlyError(error)); return; }
+      if (!data?.length) {
+        // UPDATE прошёл, но 0 строк: строки профиля нет (или нет прав). Создавать её отсюда
+        // нельзя, INSERT в profiles закрыт RLS, и роль так не выдаётся. Строку создаёт
+        // триггер при регистрации или администратор в базе.
+        const text = 'Карточка профиля в базе не найдена, поэтому сохранить нечего. Имя и должность пока берутся из учётной записи. Попроси администратора создать строку профиля.';
+        setNote(text);
+        toast.error('Профиль не найден');
+        return;
+      }
+      updateProfile({ id: uid, name: payload.name, position: payload.position, phone: payload.phone || '', avatar: payload.avatar || profile?.avatar || '' });
+      toast.success('Профиль сохранён');
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
     <div className="card p-6 space-y-3">
       <h2 className="text-xl font-semibold">Мой профиль</h2>
-      <p className="text-sm text-[#C8A77E]">{profile?.email} · зона: {zoneLabel(profile?.zone || 'all')}</p>
+      <p className="text-sm text-[#C8A77E]">{profile?.email || 'Загрузка профиля…'} · зона: {zoneLabel(profile?.zone || 'all')}{profile?.role === 'admin' ? ' · администратор' : ''}</p>
       <label className="block"><span className="block mb-1">Имя</span><input value={name} onChange={(e) => setName(e.target.value)} className={input} /></label>
       <label className="block"><span className="block mb-1">Должность</span><input value={position} onChange={(e) => setPosition(e.target.value)} className={input} /></label>
       <label className="block"><span className="block mb-1">Телефон</span><input value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" className={input} /></label>
       <label className="block"><span className="block mb-1">Аватар (эмодзи)</span><input value={avatar} onChange={(e) => setAvatar(e.target.value)} maxLength={8} className={input} /></label>
+      {note && <p role="alert" className="rounded-2xl bg-amber-900/40 border border-amber-700 text-amber-100 px-4 py-3 text-sm">{note}</p>}
       <button type="button" onClick={save} disabled={saving} className="btn-primary w-full py-3 flex items-center justify-center gap-2 disabled:opacity-60">
         {saving && <Loader2 className="w-4 h-4 animate-spin" />} Сохранить профиль
       </button>
