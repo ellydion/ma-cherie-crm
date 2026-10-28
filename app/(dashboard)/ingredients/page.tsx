@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { Check, Loader2, Pencil, Plus, Trash2, X } from 'lucide-react';
+import { Loader2, Pencil, Plus, Trash2, X } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
 import { useZone } from '@/lib/useZone';
 import { zoneLabel } from '@/lib/zone';
@@ -42,9 +42,6 @@ export default function IngredientsPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [confirmId, setConfirmId] = useState<string | null>(null);
-  const [renameId, setRenameId] = useState<string | null>(null);
-  const [renameValue, setRenameValue] = useState('');
-  const [renaming, setRenaming] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [usage, setUsage] = useState<number | null>(null);
 
@@ -86,23 +83,6 @@ export default function IngredientsPage() {
     });
     setError('');
     setOpen(true);
-  };
-
-  const startRename = (item: Ing) => { setRenameId(item.id); setRenameValue(item.name); setError(''); };
-
-  const saveRename = async (item: Ing) => {
-    const name = renameValue.trim();
-    if (!name) { setError('Название не может быть пустым'); return; }
-    if (name === item.name) { setRenameId(null); return; }
-    const same = items.find((i) => i.id !== item.id && i.name.trim().toLowerCase() === name.toLowerCase());
-    if (same) { setError('«' + same.name + '» уже есть.'); return; }
-    setRenaming(true);
-    const { error: saveError } = await supabase.from('ingredients').update({ name, updated_at: new Date().toISOString() }).eq('id', item.id).select('id').single();
-    setRenaming(false);
-    if (saveError) { const t = friendlyError(saveError); setError(t); toast.error(t); return; }
-    setRenameId(null);
-    toast.success(`Переименовано в «${name}»`);
-    await load();
   };
 
   const save = async () => {
@@ -194,8 +174,8 @@ export default function IngredientsPage() {
               <div className="text-sm text-gray-400 mt-1">Остаток {Number(item.quantity)} {item.unit} · мин. {Number(item.min_threshold)} · {Number(item.cost_price || 0)} с · {item.section === 'kitchen' ? 'Кухня' : 'Кофейня'}</div>
             </button>
             <div className="flex gap-2 mt-3">
-              <button type="button" onClick={() => openEdit(item)} className="flex-1 py-2 rounded-xl bg-[#C8A77E] text-[#3F2A1F] text-sm flex items-center justify-center gap-2"><Pencil className="w-4 h-4" /> Изменить</button>
-              <button type="button" onClick={() => askRemove(item)} aria-label={`Удалить ${item.name}`} className="p-2 rounded-xl bg-[#2C241E] border border-[#5C4030] text-red-400"><Trash2 className="w-4 h-4" /></button>
+              <button type="button" onClick={() => openEdit(item)} className="flex-1 py-2 rounded-xl bg-[#C8A77E] text-[#3F2A1F] text-sm flex items-center justify-center gap-2"><Pencil size={18} aria-hidden="true" /> Изменить</button>
+              <button type="button" onClick={() => askRemove(item)} title="Удалить" aria-label={`Удалить ${item.name}`} className="inline-flex items-center justify-center shrink-0 w-10 h-10 rounded-xl bg-[#2C241E] border border-[#5C4030] text-red-400"><Trash2 size={18} aria-hidden="true" /></button>
             </div>
           </div>
         ))}
@@ -204,7 +184,7 @@ export default function IngredientsPage() {
         <table className="w-full min-w-[760px]">
           <thead>
             <tr className="text-left border-b border-[#5C4030] text-[#C8A77E] text-sm">
-              <th className="p-4">Название</th><th className="p-4">Ед.</th><th className="p-4">Остаток</th><th className="p-4">Мин.</th><th className="p-4">Себест.</th><th className="p-4">Секция</th><th className="p-4 w-40 sticky right-0 bg-[#3F2A1F]"></th>
+              <th className="p-4">Название</th><th className="p-4">Ед.</th><th className="p-4">Остаток</th><th className="p-4">Мин.</th><th className="p-4">Себест.</th><th className="p-4">Секция</th><th className="p-4 w-32 sticky right-0 bg-[#3F2A1F]"></th>
             </tr>
           </thead>
           <tbody>
@@ -212,15 +192,7 @@ export default function IngredientsPage() {
             {visible.map((item) => (
               <tr key={item.id} className="border-t border-[#5C4030]">
                 <td className="p-3">
-                  {renameId === item.id ? (
-                    <div className="flex items-center gap-2">
-                      <input autoFocus value={renameValue} onChange={(e) => setRenameValue(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') saveRename(item); if (e.key === 'Escape') setRenameId(null); }} className="flex-1 bg-[#2C241E] border border-[#C8A77E] rounded-xl px-3 py-2 text-white" />
-                      <button type="button" disabled={renaming} onClick={() => saveRename(item)} className="p-2 rounded-xl bg-[#C8A77E] text-[#3F2A1F]"><Check className="w-4 h-4" /></button>
-                      <button type="button" onClick={() => setRenameId(null)} className="p-2 rounded-xl border border-[#5C4030] text-gray-300"><X className="w-4 h-4" /></button>
-                    </div>
-                  ) : (
-                    <button type="button" onClick={() => startRename(item)} className="text-left text-white font-medium hover:text-[#C8A77E]">{item.name}</button>
-                  )}
+                  {(<button type="button" onClick={() => openEdit(item)} className="text-left text-white font-medium hover:text-[#C8A77E]">{item.name}</button>)}
                 </td>
                 <td onClick={() => openEdit(item)} className="cursor-pointer p-4 text-gray-400">{item.unit}</td>
                 <td onClick={() => openEdit(item)} className="cursor-pointer p-4 font-mono text-white">{Number(item.quantity)}</td>
@@ -229,9 +201,8 @@ export default function IngredientsPage() {
                 <td className="p-4 text-[#C8A77E]">{item.section === 'kitchen' ? 'Кухня' : 'Кофейня'}</td>
                 <td className="p-4 sticky right-0 bg-[#3F2A1F]">
                   <div className="flex gap-2 justify-end">
-                    <button type="button" onClick={() => startRename(item)} className="px-3 py-2 rounded-xl bg-[#2C241E] border border-[#5C4030] text-[#C8A77E] text-xs">Переименовать</button>
-                    <button type="button" onClick={() => openEdit(item)} title="Изменить" aria-label={`Изменить ${item.name}`} className="p-2 rounded-xl bg-[#2C241E] border border-[#5C4030] text-[#C8A77E]"><Pencil className="w-4 h-4" /></button>
-                    <button type="button" onClick={() => askRemove(item)} title="Удалить" aria-label={`Удалить ${item.name}`} className="p-2 rounded-xl bg-[#2C241E] border border-[#5C4030] text-red-400"><Trash2 className="w-4 h-4" /></button>
+                    <button type="button" onClick={() => openEdit(item)} title="Изменить" aria-label={`Изменить ${item.name}`} className="inline-flex items-center justify-center shrink-0 w-10 h-10 rounded-xl bg-[#2C241E] border border-[#5C4030] text-[#C8A77E] hover:border-[#C8A77E]"><Pencil size={18} strokeWidth={2} color="currentColor" aria-hidden="true" /></button>
+                    <button type="button" onClick={() => askRemove(item)} title="Удалить" aria-label={`Удалить ${item.name}`} className="inline-flex items-center justify-center shrink-0 w-10 h-10 rounded-xl bg-[#2C241E] border border-[#5C4030] text-red-400 hover:border-red-400"><Trash2 size={18} strokeWidth={2} color="currentColor" aria-hidden="true" /></button>
                   </div>
                 </td>
               </tr>
