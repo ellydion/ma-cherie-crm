@@ -185,11 +185,26 @@ export default function IngredientsPage() {
         </div>
         <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Найти по названию" className="md:ml-auto bg-[#2C241E] border border-[#5C4030] rounded-2xl px-4 py-2 text-white w-full md:w-72" />
       </div>
-      <div className="card overflow-x-auto">
+      <div className="md:hidden space-y-3">
+        {visible.length === 0 && <div className="card p-6 text-center text-gray-400">Ничего не найдено</div>}
+        {visible.map((item) => (
+          <div key={item.id} className="card p-4">
+            <button type="button" onClick={() => openEdit(item)} className="w-full text-left">
+              <div className="text-white font-medium">{item.name}</div>
+              <div className="text-sm text-gray-400 mt-1">Остаток {Number(item.quantity)} {item.unit} · мин. {Number(item.min_threshold)} · {Number(item.cost_price || 0)} с · {item.section === 'kitchen' ? 'Кухня' : 'Кофейня'}</div>
+            </button>
+            <div className="flex gap-2 mt-3">
+              <button type="button" onClick={() => openEdit(item)} className="flex-1 py-2 rounded-xl bg-[#C8A77E] text-[#3F2A1F] text-sm flex items-center justify-center gap-2"><Pencil className="w-4 h-4" /> Изменить</button>
+              <button type="button" onClick={() => askRemove(item)} aria-label={`Удалить ${item.name}`} className="p-2 rounded-xl bg-[#2C241E] border border-[#5C4030] text-red-400"><Trash2 className="w-4 h-4" /></button>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="card overflow-x-auto hidden md:block">
         <table className="w-full min-w-[760px]">
           <thead>
             <tr className="text-left border-b border-[#5C4030] text-[#C8A77E] text-sm">
-              <th className="p-4">Название</th><th className="p-4">Ед.</th><th className="p-4">Остаток</th><th className="p-4">Мин.</th><th className="p-4">Себест.</th><th className="p-4">Секция</th><th className="p-4 w-40"></th>
+              <th className="p-4">Название</th><th className="p-4">Ед.</th><th className="p-4">Остаток</th><th className="p-4">Мин.</th><th className="p-4">Себест.</th><th className="p-4">Секция</th><th className="p-4 w-40 sticky right-0 bg-[#3F2A1F]"></th>
             </tr>
           </thead>
           <tbody>
@@ -207,12 +222,12 @@ export default function IngredientsPage() {
                     <button type="button" onClick={() => startRename(item)} className="text-left text-white font-medium hover:text-[#C8A77E]">{item.name}</button>
                   )}
                 </td>
-                <td className="p-4 text-gray-400">{item.unit}</td>
-                <td className="p-4 font-mono text-white">{Number(item.quantity)}</td>
-                <td className="p-4 text-gray-400">{Number(item.min_threshold)}</td>
-                <td className="p-4 text-gray-300">{Number(item.cost_price || 0)} с</td>
+                <td onClick={() => openEdit(item)} className="cursor-pointer p-4 text-gray-400">{item.unit}</td>
+                <td onClick={() => openEdit(item)} className="cursor-pointer p-4 font-mono text-white">{Number(item.quantity)}</td>
+                <td onClick={() => openEdit(item)} className="cursor-pointer p-4 text-gray-400">{Number(item.min_threshold)}</td>
+                <td onClick={() => openEdit(item)} className="cursor-pointer p-4 text-gray-300">{Number(item.cost_price || 0)} с</td>
                 <td className="p-4 text-[#C8A77E]">{item.section === 'kitchen' ? 'Кухня' : 'Кофейня'}</td>
-                <td className="p-4">
+                <td className="p-4 sticky right-0 bg-[#3F2A1F]">
                   <div className="flex gap-2 justify-end">
                     <button type="button" onClick={() => startRename(item)} className="px-3 py-2 rounded-xl bg-[#2C241E] border border-[#5C4030] text-[#C8A77E] text-xs">Переименовать</button>
                     <button type="button" onClick={() => openEdit(item)} title="Изменить" aria-label={`Изменить ${item.name}`} className="p-2 rounded-xl bg-[#2C241E] border border-[#5C4030] text-[#C8A77E]"><Pencil className="w-4 h-4" /></button>
