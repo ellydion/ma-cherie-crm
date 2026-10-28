@@ -30,6 +30,8 @@ export default function PosPage() {
   const table = tableInput ?? defaultTable;
   const [lines, setLines] = useState<Line[]>([]);
   const [loadError, setLoadError] = useState('');
+  // Пока меню не пришло, вместо «товаров нет» показываем загрузку.
+  const [productsLoaded, setProductsLoaded] = useState(false);
   const currentShift = useShiftStore((s) => s.current);
   const refreshShift = useShiftStore((s) => s.refresh);
   const { zone } = useZone();
@@ -45,6 +47,7 @@ export default function PosPage() {
         .not('is_active', 'is', false);
       if (!showHiddenOnPos) q = q.not('hidden_from_techcards', 'is', true);
       const { data, error } = await q.order('name');
+      setProductsLoaded(true);
       if (error) { setLoadError(error.message); setProducts([]); return; }
       setLoadError('');
       setProducts(data || []);
@@ -127,10 +130,16 @@ export default function PosPage() {
     await supabase.from('order_items').insert(lines.map((l) => ({ order_id: order.id, product_id: l.id, product_name: l.name, quantity: l.quantity, price: l.price })));
     if (autoWriteOff) for (const line of lines) await writeOff(line);
     if (guest) {
-      await supabase.from('customers').update({
+      // Последний визит (дата по Бишкеку), сумма покупок и баллы гостя.
+      // Счётчика покупок в таблице customers нет, поэтому его не трогаем.
+      const patch = {
         total_spent: Number(guest.total_spent || 0) + total,
         points: Number(guest.points || 0) + pointsFor(total, settings),
-      }).eq('id', guest.id);
+        last_visit: new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bishkek' }),
+      };
+      const { error: guestError } = await supabase.from('customers').update(patch).eq('id', guest.id);
+      if (guestError) toast.error(friendlyError(guestError, 'Заказ сохранён, но карта гостя не обновилась'));
+      else setCustomers((prev) => prev.map((c) => (c.id === guest.id ? { ...c, ...patch } : c)));
     }
     setLines([]);
   };
@@ -159,7 +168,8 @@ export default function PosPage() {
               <p className="text-[#C8A77E] text-xl sm:text-2xl font-mono mt-2">{p.price}</p>
             </button>
           ))}
-          {list.length === 0 && <p className="text-gray-400 col-span-full">В этой зоне товаров нет</p>}
+          {!productsLoaded && <p className="text-gray-400 col-span-full">Загрузка меню…</p>}
+          {productsLoaded && list.length === 0 && <p className="text-gray-400 col-span-full">{search || cat !== 'all' ? 'Ничего не найдено' : 'В этой зоне товаров нет'}</p>}
         </div>
         <div className="w-full lg:w-96 card p-4 sm:p-5 flex flex-col shrink-0 max-h-[55vh] lg:max-h-none">
           <h2 className="text-lg sm:text-xl mb-3 truncate">{table}</h2>

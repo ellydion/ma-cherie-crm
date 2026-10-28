@@ -59,6 +59,11 @@ const nextConfig = {
     optimizePackageImports: ['lucide-react', '@supabase/supabase-js'],
   },
 
+  // Старый адрес склада.
+  async redirects() {
+    return [{ source: '/warehouse', destination: '/inventory', permanent: false }];
+  },
+
   async headers() {
     return [
       {
