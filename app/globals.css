@@ -34,3 +34,9 @@ input, select, textarea {
 img, svg {
   max-width: 100%;
 }
+
+/* Иконки lucide не должны сжиматься до 0 внутри узких flex-кнопок */
+svg.lucide {
+  max-width: none;
+  flex-shrink: 0;
+}
