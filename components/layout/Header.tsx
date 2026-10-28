@@ -10,7 +10,7 @@ import { useShiftStore } from '@/lib/store/shiftStore';
 export default function Header() {
   const { profile } = useProfileStore();
   const { toggleSidebar } = useUiStore();
-  const { current, refresh } = useShiftStore();
+  const { current, checked, refresh } = useShiftStore();
 
   useEffect(() => { refresh(); }, [refresh]);
 
@@ -26,7 +26,7 @@ export default function Header() {
           <PanelLeft className="w-6 h-6" />
         </button>
         <Link href="/shifts" className={`text-sm truncate px-3 py-1 rounded-2xl ${current ? 'bg-emerald-700 text-white' : 'text-[#C8A77E]'}`}>
-          {current ? 'Смена открыта' : 'Смена закрыта'}
+          {!checked ? 'Проверка смены…' : current ? 'Смена открыта' : 'Смена закрыта'}
         </Link>
       </div>
       <div className="flex items-center gap-2">

@@ -32,8 +32,16 @@ export default function InventoryPage() {
   const load = async () => {
     const { data: auth } = await supabase.auth.getUser();
     setEmail(auth.user?.email || '');
-    const { data: view } = await supabase.from('warehouse_stock').select('*').order('name');
-    if (view && view.length) { setRows(view as Row[]); return; }
+    const [{ data: view }, { data: hidden }] = await Promise.all([
+      supabase.from('warehouse_stock').select('*').order('name'),
+      // Товары, убранные в техкартах (hidden_from_techcards) или выключенные, на складе не показываем.
+      supabase.from('products').select('id').or('hidden_from_techcards.is.true,is_active.is.false'),
+    ]);
+    const hiddenIds = new Set((hidden || []).map((h: { id: string }) => h.id));
+    if (view && view.length) {
+      setRows((view as Row[]).filter((r) => !(r.kind === 'product' && hiddenIds.has(r.id))));
+      return;
+    }
     const { data: ings } = await supabase.from('ingredients').select('*').order('name');
     setRows((ings || []).map((i: any) => ({ ...i, kind: 'ingredient' })));
   };

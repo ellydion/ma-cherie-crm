@@ -12,6 +12,8 @@ export type Shift = {
 type Store = {
   current: Shift | null;
   loading: boolean;
+  /** true после первого ответа о текущей смене (до этого статус неизвестен). */
+  checked: boolean;
   refresh: () => Promise<void>;
   openShift: () => Promise<string | null>;
   closeShift: () => Promise<void>;
@@ -20,6 +22,7 @@ type Store = {
 export const useShiftStore = create<Store>((set, get) => ({
   current: null,
   loading: false,
+  checked: false,
   refresh: async () => {
     const { data } = await supabase
       .from('shifts')
@@ -28,7 +31,7 @@ export const useShiftStore = create<Store>((set, get) => ({
       .order('started_at', { ascending: false })
       .limit(1)
       .maybeSingle();
-    set({ current: (data as Shift) || null });
+    set({ current: (data as Shift) || null, checked: true });
   },
   openShift: async () => {
     const { data: auth } = await supabase.auth.getUser();
@@ -41,7 +44,7 @@ export const useShiftStore = create<Store>((set, get) => ({
       console.error(error);
       return null;
     }
-    set({ current: data as Shift });
+    set({ current: data as Shift, checked: true });
     return data.id as string;
   },
   closeShift: async () => {

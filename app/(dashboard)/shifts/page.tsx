@@ -26,14 +26,16 @@ type OrderLite = { total: number | string; payment_method: string | null; create
 
 const PAGE = 1000;
 
-/** Все заказы с даты from одним запросом (постранично по 1000, обычно одна страница). */
-async function fetchOrdersSince(from: string) {
+/** Заказы за [from, to) постранично по 1000 (обычно одна страница). */
+async function fetchOrders(from: string, to?: string) {
   const out: OrderLite[] = [];
   for (let page = 0; page < 50; page++) {
-    const { data, error } = await supabase
+    let q = supabase
       .from('orders')
       .select('total, payment_method, created_at, shift_id')
-      .gte('created_at', from)
+      .gte('created_at', from);
+    if (to) q = q.lt('created_at', to);
+    const { data, error } = await q
       .order('created_at', { ascending: true })
       .range(page * PAGE, page * PAGE + PAGE - 1);
     if (error) return { data: out, error };
@@ -42,6 +44,9 @@ async function fetchOrdersSince(from: string) {
   }
   return { data: out, error: null };
 }
+
+/** Окно заказов, которое запрашивается сразу, параллельно со списком смен. */
+const ORDERS_WINDOW_DAYS = 60;
 
 /** Выручка по сменам: по orders.shift_id, а для заказов без смены по времени, как раньше. */
 function statsByShift(shifts: ShiftRow[], orders: OrderLite[]) {
@@ -106,13 +111,17 @@ export default function ShiftsPage() {
     setChecks(list);
   };
 
-  // Раньше: 1 запрос смен и затем по запросу заказов на КАЖДУЮ смену по очереди (22 смены = 22 запроса
-  // подряд, около 5 с), и таблица с чек-листом рисовались только после последнего. Теперь: смены
-  // показываются сразу, заказы приходят одним запросом, чек-лист грузится параллельно.
+  // Причина «…» в колонках: выручка ждала цепочку refresh -> смены -> заказы + чек-лист (Promise.all),
+  // а эффект с [refreshSeconds] перезапускался, когда настройки приходили с сервера (20 -> 30 с),
+  // и отменял (seq++) уже идущую загрузку. Итог: цифры появлялись через 2+ с или терялись.
+  // Теперь заказы запрашиваются параллельно со сменами, чек-лист грузится отдельно, а смена
+  // интервала автообновления не отменяет загрузку.
   const load = async (force = false) => {
     if (busyRef.current && !force) return;
     busyRef.current = true;
     const seq = ++seqRef.current;
+    const cutoff = new Date(Date.now() - ORDERS_WINDOW_DAYS * 86400e3).toISOString();
+    const recentTask = fetchOrders(cutoff);
     try {
       const [, shiftsRes] = await Promise.all([
         refresh(),
@@ -137,18 +146,33 @@ export default function ShiftsPage() {
       });
       setLoaded(true);
 
+      // Чек-лист отдельно: его ошибки и задержки больше не держат выручку.
       const open = list.find((s) => !s.ended_at);
-      const checksTask = open
-        ? seedChecks(open.id).then(() => loadChecks(open.id, seq))
-        : Promise.resolve(setChecks([]));
+      if (open) {
+        seedChecks(open.id).then(() => loadChecks(open.id, seq)).catch((e) => console.error(e));
+      } else {
+        setChecks([]);
+      }
 
       const oldest = list[list.length - 1]?.started_at;
-      const ordersTask = oldest ? fetchOrdersSince(oldest) : Promise.resolve({ data: [] as OrderLite[], error: null });
-      const [{ data: orders, error: ordersError }] = await Promise.all([ordersTask, checksTask]);
-      if (seq !== seqRef.current) return;
-      if (ordersError) { setLoadError(friendlyError(ordersError, 'Не удалось посчитать выручку смен')); return; }
-      const stats = statsByShift(list, orders);
-      setRows(list.map((s) => ({ ...s, ...(stats.get(s.id) || { sales: 0, orders: 0, cash: 0, transfer: 0 }), statsReady: true })));
+      const olderTask = oldest && oldest < cutoff
+        ? fetchOrders(oldest, cutoff)
+        : Promise.resolve({ data: [] as OrderLite[], error: null });
+      const [recent, older] = await Promise.all([recentTask, olderTask]);
+      const ordersError = recent.error || older.error;
+      // Свежий ответ по тем же сменам применяем, даже если успела начаться новая загрузка.
+      if (ordersError) {
+        if (seq === seqRef.current) setLoadError(friendlyError(ordersError, 'Не удалось посчитать выручку смен'));
+        return;
+      }
+      const stats = statsByShift(list, [...older.data, ...recent.data]);
+      setRows((prev) => prev.map((r) => {
+        const st = stats.get(r.id);
+        return st ? { ...r, ...st, statsReady: true } : r;
+      }));
+    } catch (e) {
+      console.error(e);
+      if (seq === seqRef.current) setLoadError('Не удалось загрузить смены. Обнови страницу.');
     } finally {
       if (seq === seqRef.current) busyRef.current = false;
     }
@@ -156,10 +180,15 @@ export default function ShiftsPage() {
 
   useEffect(() => {
     load(true);
-    const t = setInterval(() => load(), refreshSeconds * 1000);
-    // seqRef не DOM-узел: инкремент в cleanup как раз отменяет незавершённую загрузку.
+    // seqRef не DOM-узел: инкремент в cleanup отменяет незавершённую загрузку при уходе со страницы.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    return () => { clearInterval(t); seqRef.current++; busyRef.current = false; };
+    return () => { seqRef.current++; busyRef.current = false; };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps -- первая загрузка один раз
+
+  useEffect(() => {
+    // Смена интервала (настройки пришли с сервера) только переставляет таймер, загрузку не отменяет.
+    const t = setInterval(() => load(), Math.max(5, refreshSeconds || 30) * 1000);
+    return () => clearInterval(t);
   }, [refreshSeconds]); // eslint-disable-line react-hooks/exhaustive-deps -- load читает актуальное состояние через ref'ы
 
   const onOpen = async () => {
