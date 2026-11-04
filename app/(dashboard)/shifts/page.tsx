@@ -73,7 +73,7 @@ function statsByShift(shifts: ShiftRow[], orders: OrderLite[]) {
 type Check = { id: string; done: boolean; task: { title: string; phase: string; sort: number } };
 
 export default function ShiftsPage() {
-  const { current, refresh, openShift, closeShift } = useShiftStore();
+  const { current, refresh, openShift, closeShift, busy } = useShiftStore();
   const [rows, setRows] = useState<Row[]>([]);
   const [msg, setMsg] = useState('');
   const [checks, setChecks] = useState<Check[]>([]);
@@ -192,16 +192,18 @@ export default function ShiftsPage() {
   }, [refreshSeconds]); // eslint-disable-line react-hooks/exhaustive-deps -- load читает актуальное состояние через ref'ы
 
   const onOpen = async () => {
+    if (busy) return;
     if (current) { setMsg('Смена уже открыта'); return; }
     const id = await openShift();
     if (id) await seedChecks(id);
-    setMsg(id ? 'Смена открыта, чек-лист обновлён' : 'Не удалось открыть смену. Попробуй ещё раз или сообщи администратору.');
+    setMsg(id ? 'Смена открыта, чек-лист обновлён' : useShiftStore.getState().lastMessage || 'Не удалось открыть смену.');
     load(true);
   };
 
   const onClose = async () => {
-    await closeShift();
-    setMsg('Смена закрыта');
+    if (busy) return;
+    const ok = await closeShift();
+    setMsg(ok ? 'Смена закрыта' : useShiftStore.getState().lastMessage || 'Не удалось закрыть смену.');
     load(true);
   };
 
@@ -230,9 +232,9 @@ export default function ShiftsPage() {
             'начало': fmt(r.started_at), 'конец': r.ended_at ? fmt(r.ended_at) : 'идёт', 'заказы': r.orders, 'выручка': r.sales, 'нал': r.cash, 'перевод': r.transfer,
           })))} className="px-6 py-4 rounded-3xl border border-[#5C4030]">Excel</button>
           {!current ? (
-            <button type="button" onClick={onOpen} className="btn-primary px-8 py-4">Открыть смену</button>
+            <button type="button" onClick={onOpen} disabled={busy} aria-busy={busy} className="btn-primary px-8 py-4 disabled:opacity-60 disabled:cursor-wait">{busy ? 'Открываю…' : 'Открыть смену'}</button>
           ) : (
-            <button type="button" onClick={onClose} className="px-8 py-4 rounded-3xl bg-red-700">Закрыть смену</button>
+            <button type="button" onClick={onClose} disabled={busy} aria-busy={busy} className="px-8 py-4 rounded-3xl bg-red-700 disabled:opacity-60 disabled:cursor-wait">{busy ? 'Закрываю…' : 'Закрыть смену'}</button>
           )}
         </div>
       </div>
